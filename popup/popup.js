@@ -64,6 +64,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   const diagSummary = $('diagSummary');
   const diagOutput = $('diagOutput');
 
+  const checkApiDryRun = $('checkApiDryRun');
+  const btnApiPickVars = $('btnApiPickVars');
+  const apiPicker = $('apiPicker');
+  const apiPickerInfo = $('apiPickerInfo');
+  const apiPickerSearch = $('apiPickerSearch');
+  const apiPickerList = $('apiPickerList');
+  const apiPickCount = $('apiPickCount');
+  const btnApiPickClear = $('btnApiPickClear');
+  const btnApiPickDownload = $('btnApiPickDownload');
+  const btnApiBackup = $('btnApiBackup');
+  const apiBackupCount = $('apiBackupCount');
+  const btnApiRestore = $('btnApiRestore');
+  const btnApiFindKey = $('btnApiFindKey');
+
   const MODE_INFO = {
     DC0: {
       desc: 'Konfirmasi anomali <b>tanpa mengubah isian</b>: bot memberi catatan, menyalakan konfirmasi anomali, lalu Kirim (& Approve). Cocok untuk anomali apa pun.',
@@ -76,8 +90,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       upload: 'Kolom wajib: <code>link_fasih_sm</code>, <code>kbli_awal</code>, <code>kbli_tujuan</code>',
       template: 'Template_TUNTAS_DC1_KBLI.xlsx',
       templateLabel: 'Unduh Template #DC_01 (KBLI)'
+    },
+    API: {
+      desc: 'Ganti isian <b>variabel lain (selain KBLI)</b>: ① pilih variabel → ② unduh template → isi nilai baru → upload. Setiap variabel yang berubah diberi catatan <b>#DC_01</b>, lalu Kirim (dibatalkan bila ada GALAT) & Approve. Selalu <b>uji coba</b> dulu.',
+      upload: 'Kolom wajib: <code>link_fasih_sm</code> + kolom variabel dari template ②',
+      template: 'Template_TUNTAS_API_Variabel.xlsx',
+      templateLabel: 'Unduh Template Kosong'
     }
   };
+  const MODE_LABEL = { DC0: '#DC_00', DC1: '#DC_01', API: 'API' };
+  const MODE_TAG = { DC0: 'tag-dc0', DC1: 'tag-dc1', API: 'tag-api' };
 
   let activeMode = 'DC0';   // menu yang sedang dipilih
   let queueMode = null;     // mode file yang sedang dimuat
@@ -159,7 +181,68 @@ document.addEventListener('DOMContentLoaded', async () => {
   const normKey = (k) => String(k).trim().toLowerCase().replace(/\s+/g, '_');
   const padKbli = (v) => (/^\d{1,5}$/.test(v) ? v.padStart(5, '0') : v);
 
+  // Kolom yang bukan variabel FASIH pada menu Ubah Variabel
+  const API_RESERVED = new Set(['no', 'nomor', 'link_fasih_sm', 'link', 'assignment_id', 'id_assignment', 'nama_usaha', 'kode_catatan', 'keterangan', 'kode_identitas', 'status']);
+
+  // Kode catatan perubahan data (menu API)
+  const KODE_CATATAN = {
+    '#1': 'Data mengalami perubahan. Perbaikan dilakukan karena kesalahan pemahaman petugas terhadap konsep atau kesalahan entri kuesioner.',
+    '#2': 'Data mengalami perubahan. Hasil konfirmasi/revisit kepada responden.',
+    '#3': 'Data mengalami perubahan. Informasi yang bersumber dari survei rutin/data administrasi.',
+    '#4': 'Data mengalami perubahan. Metode atau informasi lain selain kriteria kode.'
+  };
+  const normKodeCatatan = (v) => { const m = String(v || '').trim().match(/^#?\s*([1-4])$/); return m ? '#' + m[1] : null; };
+
+  function parseApiRows(rows) {
+    const keys = Object.keys(rows[0] || {});
+    const linkKey = keys.find(k => normKey(k) === 'link_fasih_sm') || keys.find(k => normKey(k).includes('link_fasih'));
+    const idKey = keys.find(k => ['assignment_id', 'id_assignment'].includes(normKey(k)));
+    const namaKey = keys.find(k => normKey(k) === 'nama_usaha');
+    const kodeKey = keys.find(k => normKey(k) === 'kode_catatan');
+    if (!linkKey && !idKey) throw new Error('Menu Ubah Variabel membutuhkan kolom "link_fasih_sm" atau "assignment_id".');
+    const remarkCols = keys.filter(k => /^\s*(catatan|remark)\s*:/i.test(k)).map(k => ({ col: k, dataKey: k.replace(/^\s*(catatan|remark)\s*:\s*/i, '').trim() }));
+    const valueCols = keys.filter(k => !API_RESERVED.has(normKey(k)) && !remarkCols.some(r => r.col === k) && !/^__EMPTY/.test(k));
+    if (!valueCols.length && !remarkCols.length) throw new Error('Tidak ada kolom variabel. Tambahkan kolom dengan nama dataKey FASIH (mis. r27a#1) atau catatan:dataKey.');
+    const val = (row, key) => (key && row[key] !== undefined && row[key] !== null) ? String(row[key]).trim() : '';
+    const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+    return rows
+      .filter(row => Object.values(row).some(v => String(v).trim() !== ''))
+      .map((row, idx) => {
+        const id = val(row, idKey);
+        let link = val(row, linkKey);
+        if (!/^https?:\/\//i.test(link) && UUID.test(id)) link = `https://fasih-sm.bps.go.id/app/assignment-detail/${id.match(UUID)[0]}`;
+        const apiValues = {};
+        valueCols.forEach(c => { const v = val(row, c); if (v !== '') apiValues[c.trim()] = v; });
+        const apiRemarks = {};
+        remarkCols.forEach(r => { const v = val(row, r.col); if (v !== '' && r.dataKey) apiRemarks[r.dataKey] = v; });
+        const kodeIsi = val(row, kodeKey);
+        const apiNoteCode = kodeIsi === '' ? '#1' : normKodeCatatan(kodeIsi);
+        let error = null;
+        if (!/^https?:\/\//i.test(link)) error = 'link_fasih_sm / assignment_id kosong atau tidak valid';
+        else if (!apiNoteCode) error = `kode_catatan "${kodeIsi}" tidak dikenal — isi #1, #2, #3 atau #4`;
+        else if (!Object.keys(apiValues).length && !Object.keys(apiRemarks).length) error = 'tidak ada nilai variabel / catatan yang diisi';
+        return {
+          index: idx,
+          excelRowNum: idx + 1,
+          mode: 'API',
+          link_fasih_sm: link,
+          assignmentId: UUID.test(id) ? id.match(UUID)[0] : '',
+          nama_usaha: val(row, namaKey) || id || `Baris #${idx + 1}`,
+          targetUsaha: val(row, namaKey),
+          namaUsahaExcel: val(row, namaKey),
+          apiNoteCode,
+          apiValues,
+          apiRemarks,
+          status: error ? 'INVALID' : 'PENDING',
+          error,
+          originalRow: row
+        };
+      });
+  }
+
   function parseRows(rows, mode) {
+    if (mode === 'API') return parseApiRows(rows);
     const keys = Object.keys(rows[0] || {});
     const find = (...names) => keys.find(k => names.includes(normKey(k)));
     const linkKey = keys.find(k => normKey(k) === 'link_fasih_sm') || keys.find(k => normKey(k).includes('link_fasih'));
@@ -304,8 +387,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const totalAll = allRows.length || queue.length;
     const { startRow, endRow, isFiltered } = getRowRangeBounds(totalAll);
     fileRowCount.textContent = isFiltered ? `${queue.length}/${totalAll} (Brs ${startRow}-${endRow})` : `${queue.length} baris`;
-    fileMode.textContent = queueMode === 'DC1' ? '#DC_01' : '#DC_00';
-    fileMode.className = `file-mode ${queueMode === 'DC1' ? 'tag-dc1' : 'tag-dc0'}`;
+    fileMode.textContent = MODE_LABEL[queueMode] || '#DC_00';
+    fileMode.className = `file-mode ${MODE_TAG[queueMode] || 'tag-dc0'}`;
     fileInfo.classList.remove('hidden');
     dropArea.classList.add('hidden');
     btnStart.disabled = queue.length === 0;
@@ -332,7 +415,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       requireManualConfirm: checkRequireConfirm.checked,
       autoSubmitSurvey: true,
       autoApprove: checkAutoApprove.checked,
-      closeTabOnComplete: checkCloseTab.checked
+      closeTabOnComplete: checkCloseTab.checked,
+      apiDryRun: checkApiDryRun ? checkApiDryRun.checked : true
     };
   }
 
@@ -341,9 +425,172 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   [commentInput, dc0TargetSelect, catatanDigantiInput, delayInput, periodeInput,
     ssoEmailInput, ssoPasswordInput, pcNameInput, webhookUrlInput, checkEnableWebhook, checkAutoSsoLogin,
-    checkRequireConfirm, checkAutoApprove, checkCloseTab]
+    checkRequireConfirm, checkAutoApprove, checkCloseTab, checkApiDryRun]
     .filter(Boolean)
     .forEach(el => el.addEventListener('change', saveSettings));
+
+
+  // ---------- Menu Ubah Variabel: backup, restore, cari dataKey ----------
+  async function refreshBackupCount() {
+    try {
+      const info = await chrome.runtime.sendMessage({ action: 'API_BACKUP_INFO' });
+      if (apiBackupCount) apiBackupCount.textContent = (info && info.count) || 0;
+      return info || { count: 0, backups: {} };
+    } catch (e) { return { count: 0, backups: {} }; }
+  }
+
+  if (btnApiBackup) {
+    btnApiBackup.addEventListener('click', async () => {
+      const info = await refreshBackupCount();
+      if (!info.count) { alert('Belum ada backup. Backup dibuat otomatis sebelum perubahan API disimpan (bukan saat uji coba).'); return; }
+      const blob = new Blob([JSON.stringify(info.backups, null, 1)], { type: 'application/json' });
+      const a = document.createElement('a');
+      const now = new Date(), pad = (n) => String(n).padStart(2, '0');
+      a.href = URL.createObjectURL(blob);
+      a.download = `TUNTAS_backup_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.json`;
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      liveStatusText.textContent = `${info.count} backup diunduh.`;
+    });
+  }
+
+  if (btnApiRestore) {
+    btnApiRestore.addEventListener('click', async () => {
+      const info = await refreshBackupCount();
+      if (!info.count) { alert('Tidak ada backup untuk di-restore.'); return; }
+      if (runnerStatus === 'RUNNING') { alert('Hentikan antrian terlebih dahulu.'); return; }
+      const codes = Object.values(info.backups).map(b => b.code || b.assignmentId).slice(0, 10).join('\n');
+      if (!confirm(`Kembalikan ${info.count} dokumen ke isi SEBELUM diubah lewat API?\n\n${codes}${info.count > 10 ? '\n…' : ''}\n\nCatatan: status dokumen tidak ikut kembali; buka & Kirim ulang bila perlu.`)) return;
+      liveStatusText.textContent = 'Restore berjalan...';
+      const res = await chrome.runtime.sendMessage({ action: 'API_RESTORE_BACKUPS', dryRun: false });
+      if (!res || !res.ok) { alert('Restore gagal: ' + ((res && res.error) || 'tidak ada respons')); return; }
+      const ok = res.results.filter(r => r.ok).length;
+      const bad = res.results.filter(r => !r.ok);
+      liveStatusText.textContent = `Restore selesai: ${ok} berhasil${bad.length ? `, ${bad.length} gagal` : ''}.`;
+      if (bad.length) alert('Gagal restore:\n' + bad.map(b => `${b.code || b.id}: ${b.error}`).join('\n'));
+      refreshBackupCount();
+    });
+  }
+
+  // ---------- Pilih Variabel → Template (menu API) ----------
+  let apiVars = [];
+  let apiPicked = new Map();
+
+  chrome.storage.local.get(['apiPicked'], (r) => {
+    try { (r.apiPicked || []).forEach(v => apiPicked.set(v.dataKey, v)); } catch (e) {}
+    updatePickCount();
+  });
+  function savePicked() { chrome.storage.local.set({ apiPicked: [...apiPicked.values()] }); }
+  function updatePickCount() {
+    if (apiPickCount) apiPickCount.textContent = `${apiPicked.size} dipilih`;
+    if (btnApiPickDownload) {
+      btnApiPickDownload.disabled = apiPicked.size === 0;
+      btnApiPickDownload.textContent = `② Unduh Template (${apiPicked.size})`;
+    }
+  }
+  function renderPicker() {
+    if (!apiPickerList || !apiPickerSearch) return;
+    const q = apiPickerSearch.value.trim().toLowerCase();
+    const cocok = apiVars.filter(v => !q || v.label.toLowerCase().includes(q) || v.dataKey.toLowerCase().includes(q) || v.bagian.toLowerCase().includes(q));
+    apiPickerList.innerHTML = '';
+    if (!cocok.length) { apiPickerList.innerHTML = '<div class="api-picker-item">Tidak ada variabel yang cocok.</div>'; return; }
+    let sec = null;
+    cocok.slice(0, 400).forEach(v => {
+      if (v.bagian !== sec) {
+        sec = v.bagian;
+        const h = document.createElement('div'); h.className = 'api-picker-sec'; h.textContent = sec || 'Lainnya';
+        apiPickerList.appendChild(h);
+      }
+      const row = document.createElement('label');
+      row.className = 'api-picker-item' + (apiPicked.has(v.dataKey) ? ' picked' : '');
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = apiPicked.has(v.dataKey);
+      cb.addEventListener('change', () => {
+        if (cb.checked) apiPicked.set(v.dataKey, v); else apiPicked.delete(v.dataKey);
+        row.classList.toggle('picked', cb.checked); savePicked(); updatePickCount();
+      });
+      const txt = document.createElement('div');
+      const cara = v.pilihan.length ? `pilihan ${v.pilihan.length} kode` : v.angka ? 'angka' : v.jenis;
+      txt.innerHTML = `${escapeHtml(v.label || v.dataKey)}<small>${escapeHtml(v.dataKey)} · ${escapeHtml(cara)}</small>`;
+      row.append(cb, txt);
+      apiPickerList.appendChild(row);
+    });
+  }
+  if (apiPickerSearch) apiPickerSearch.addEventListener('input', renderPicker);
+  if (btnApiPickClear) $('btnApiPickClear').addEventListener('click', () => { apiPicked.clear(); savePicked(); updatePickCount(); renderPicker(); });
+
+  if (btnApiPickVars) {
+    btnApiPickVars.addEventListener('click', async () => {
+      const tab = await getActiveFasihTab();
+      if (!tab) return;
+      const ids = String(tab.url).match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) || [];
+      if (!ids.length) { alert('Buka salah satu dokumen (assignment) FASIH di tab aktif terlebih dahulu, lalu klik lagi.'); return; }
+      if (apiPicker) apiPicker.classList.remove('hidden');
+      if (apiPickerInfo) apiPickerInfo.textContent = 'Memuat daftar variabel dari form FASIH...';
+      if (apiPickerList) apiPickerList.innerHTML = '';
+      chrome.tabs.sendMessage(tab.id, { action: 'API_LIST_VARS', assignmentId: ids[ids.length - 1] }, (res) => {
+        if (chrome.runtime.lastError || !res) { if (apiPickerInfo) apiPickerInfo.textContent = 'Halaman FASIH belum siap. Refresh halaman lalu klik lagi.'; return; }
+        if (res.status !== 'DONE') { if (apiPickerInfo) apiPickerInfo.textContent = 'Gagal: ' + res.error; return; }
+        apiVars = (res.result.vars || []).filter(v => !API_RESERVED.has(normKey(v.dataKey)));
+        if (apiPickerInfo) apiPickerInfo.innerHTML = `<b>${apiVars.length}</b> variabel dari form <b>${escapeHtml(res.result.template || '')}</b>. Centang yang ingin diganti isiannya (KBLI tidak tampil — pakai menu #DC_01).`;
+        renderPicker();
+        if (apiPickerSearch) apiPickerSearch.focus();
+      });
+    });
+  }
+
+  if (btnApiPickDownload) {
+    btnApiPickDownload.addEventListener('click', () => {
+      const vars = [...apiPicked.values()];
+      if (!vars.length) return;
+      const data = XLSX.utils.aoa_to_sheet([['link_fasih_sm', 'nama_usaha', 'kode_catatan', ...vars.map(v => v.dataKey)]]);
+      data['!cols'] = [{ wch: 60 }, { wch: 30 }, { wch: 13 }, ...vars.map(v => ({ wch: Math.max(14, v.dataKey.length + 2) }))];
+      const cara = (v) => v.pilihan.length ? 'Isi KODE: ' + v.pilihan.join(' | ') : v.angka ? 'Isi angka' : 'Isi teks';
+      const petunjuk = XLSX.utils.aoa_to_sheet([
+        ['Template Menu API · Ganti Isian Variabel — TUNTAS SE2026'],
+        ['Isi sheet DATA: satu baris per dokumen. link_fasih_sm wajib. Sel kosong = tidak diubah, #KOSONG = kosongkan isian.'],
+        ['kode_catatan: kode catatan yang ditulis pada setiap variabel yang berubah (kosong = #1). Variabel KBLI tidak diubah di sini (pakai menu #DC_01).'],
+        ...Object.entries(KODE_CATATAN).map(([k, t]) => ['', k, t]),
+        ['nama_usaha dipakai untuk memilih usaha yang tepat bila satu dokumen berisi lebih dari satu usaha.'],
+        ['Selalu jalankan Uji coba (dry run) dulu dan periksa keterangan "dari → ke".'],
+        [],
+        ['Kolom', 'Pertanyaan', 'Bagian', 'Cara isi'],
+        ...vars.map(v => [v.dataKey, v.label, v.bagian, cara(v)])
+      ]);
+      petunjuk['!cols'] = [{ wch: 22 }, { wch: 55 }, { wch: 25 }, { wch: 70 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, data, 'DATA');
+      XLSX.utils.book_append_sheet(wb, petunjuk, 'PETUNJUK');
+      XLSX.writeFile(wb, `Template_TUNTAS_API_${vars.length}variabel.xlsx`);
+      liveStatusText.textContent = `Template dengan ${vars.length} variabel diunduh. Isi nilai baru lalu upload di sini.`;
+    });
+  }
+
+  if (btnApiFindKey) {
+    btnApiFindKey.addEventListener('click', async () => {
+      const tab = await getActiveFasihTab();
+      if (!tab) return;
+      const ids = String(tab.url).match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) || [];
+      if (!ids.length) { alert('Buka halaman dokumen (assignment) di tab aktif terlebih dahulu.'); return; }
+      const q = (prompt('Cari variabel berdasarkan label / dataKey (mis. "kbli", "nama usaha", "jumlah pekerja"):') || '').trim();
+      if (!q) return;
+      liveStatusText.textContent = 'Mencari dataKey...';
+      chrome.tabs.sendMessage(tab.id, { action: 'API_FIND_KEYS', assignmentId: ids[ids.length - 1], query: q }, (res) => {
+        if (chrome.runtime.lastError || !res) { alert('Halaman belum siap. Refresh halaman FASIH lalu coba lagi.'); return; }
+        if (res.status !== 'DONE') { alert('Gagal: ' + res.error); return; }
+        const rows = res.result || [];
+        const bisa = rows.filter(r => !r.kbli);
+        diagSummary.innerHTML = `<div><b>${bisa.length}</b> isian cocok dengan "${escapeHtml(q)}"${rows.length > bisa.length ? ` (+${rows.length - bisa.length} isian KBLI → pakai menu #DC_01)` : ''}.<br>` +
+          `Salin teks setelah <b>Judul kolom</b> (lengkap dengan #angka) ke baris pertama Excel, lalu isi nilai baru di bawahnya.</div>`;
+        const isiSel = (r) => r.pilihan ? `isi sel dengan KODE: ${r.pilihan}` : r.angka ? 'isi sel dengan angka' : 'isi sel dengan teks';
+        diagOutput.textContent = rows.map(r => r.kbli
+          ? `⛔ ${r.label || r.dataKey}\n   variabel KBLI — tidak bisa di menu API, gunakan menu #DC_01`
+          : `▶ ${r.label || r.dataKey}\n` + r.kolom.map(k => `   Judul kolom: ${k.kolom}    (isi sekarang: ${k.sekarang})`).join('\n') + `\n   ${isiSel(r)}`
+        ).join('\n\n') || '(tidak ada isian yang cocok)';
+        diagCard.classList.remove('hidden');
+        liveStatusText.textContent = 'Hasil pencarian dataKey ditampilkan.';
+      });
+    });
+  }
 
   if (btnTestWebhook) {
     btnTestWebhook.addEventListener('click', () => {
@@ -394,8 +641,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   btnStart.addEventListener('click', () => {
     if (!queue.length) return;
     if (queueMode !== activeMode) setActiveMode(queueMode);
-    if (checkAutoApprove.checked &&
-        !confirm(`Mulai ${queueMode === 'DC1' ? '#DC_01 (Ganti KBLI)' : '#DC_00 (Tanpa Perubahan)'} untuk ${queue.filter(q => q.status === 'PENDING').length} dokumen?\nDokumen akan DIKIRIM dan DI-APPROVE otomatis.`)) {
+    const nJalan = queue.filter(q => q.status === 'PENDING' || q.status === 'DRYRUN').length;
+    if (queueMode === 'API') {
+      if (checkApiDryRun && checkApiDryRun.checked) {
+        liveStatusText.textContent = 'Uji coba: membaca dokumen & menghitung perubahan (tidak menyimpan)...';
+      } else if (!confirm(`SIMPAN perubahan lewat API untuk ${nJalan} dokumen?\n\n• Backup otomatis dibuat sebelum menyimpan.\n• ${checkAutoApprove.checked ? 'Setelah itu form dibuka & dikirim (dibatalkan bila ada GALAT), lalu di-Approve.' : 'Setelah itu form dibuka & dikirim (dibatalkan bila ada GALAT).'}\n\nPastikan hasil uji coba sudah diperiksa.`)) {
+        return;
+      }
+    } else if (checkAutoApprove.checked &&
+        !confirm(`Mulai ${queueMode === 'DC1' ? '#DC_01 (Ganti KBLI)' : '#DC_00 (Tanpa Perubahan)'} untuk ${nJalan} dokumen?\nDokumen akan DIKIRIM dan DI-APPROVE otomatis.`)) {
       return;
     }
     saveSettings();
@@ -472,6 +726,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Test di tab aktif: dijalankan via background agar tetap jalan lintas redirect SSO Eksternal
   btnTestActiveTab.addEventListener('click', async () => {
+    if (activeMode === 'API') {
+      alert('Menu Ubah Variabel diuji lewat antrian: upload Excel 1 baris, biarkan "Uji coba (dry run)" tercentang, lalu Mulai.');
+      return;
+    }
     const tab = await getActiveFasihTab();
     if (!tab) return;
     const lowerUrl = (tab.url || '').toLowerCase();
@@ -631,7 +889,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const rowsOut = queue.map((item, idx) => {
         const rowNum = item.excelRowNum || (idx + 1);
         const base = item.originalRow ? { No_Baris_Excel: rowNum, PC: pcVal, ...item.originalRow } : { No_Baris_Excel: rowNum, PC: pcVal, link_fasih_sm: item.link_fasih_sm };
-        base.menu = item.mode === 'DC1' ? '#DC_01' : '#DC_00';
+        base.menu = item.mode === 'DC1' ? '#DC_01' : (item.mode === 'API' ? 'API' : '#DC_00');
         base.status = statusText(item);
         base.keterangan = item.error || (item.status === 'SUCCESS' ? 'Sukses' : '');
         return base;
@@ -672,6 +930,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function badgeFor(item) {
     if (item.status === 'SUCCESS') return ['status-success', 'Selesai'];
     if (item.status === 'INVALID') return ['status-invalid', 'Tidak valid'];
+    if (item.status === 'DRYRUN') return ['status-dryrun', 'Uji OK'];
     if (item.status === 'SKIPPED') return ['status-skipped', 'Dilewati'];
     if (item.status === 'PROCESSING' || item.status === 'OPENING_TAB') return ['status-running', 'Memproses'];
     if (item.status === 'FAILED') {
@@ -688,7 +947,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const totalAll = allRows.length || queue.length;
     const { startRow, endRow, isFiltered } = getRowRangeBounds(totalAll);
     const rangeInfo = (queue.length && isFiltered) ? ` (Baris ${startRow}–${endRow})` : '';
-    queueSummary.textContent = queue.length ? `${queue.length} item${rangeInfo} · ${queueMode === 'DC1' ? '#DC_01' : '#DC_00'}` : '0 item';
+    queueSummary.textContent = queue.length ? `${queue.length} item${rangeInfo} · ${MODE_LABEL[queueMode] || '#DC_00'}` : '0 item';
     if (!queue.length) {
       queueTableBody.innerHTML = '<tr><td colspan="3" class="empty-state">Belum ada file Excel diimpor</td></tr>';
       return;
@@ -696,9 +955,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     queueTableBody.innerHTML = queue.map((item, idx) => {
       const [cls, label] = badgeFor(item);
       const rowNum = item.excelRowNum || (idx + 1);
+      const apiKeys = item.apiValues ? Object.keys(item.apiValues) : [];
+      const apiRem = item.apiRemarks ? Object.keys(item.apiRemarks) : [];
       const sub = item.kbliTask
         ? `<div class="kbli-line">KBLI ${escapeHtml(item.kbliTask.kbliAwal)} → ${escapeHtml(item.kbliTask.kbliTujuan)}</div>`
-        : '';
+        : (item.mode === 'API'
+          ? `<div class="kbli-line">${escapeHtml(apiKeys.slice(0, 4).map(k => `${k}=${item.apiValues[k]}`).join(', '))}${apiKeys.length > 4 ? ` +${apiKeys.length - 4}` : ''}${apiRem.length ? ` · ${apiRem.length} catatan` : ''}</div>`
+          : '');
       const note = item.error ? `<div class="row-note">${escapeHtml(item.error)}</div>` : '';
       return `<tr>
           <td>${rowNum}</td>
@@ -710,7 +973,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function updateProgressUI() {
     const total = queue.length;
-    const done = queue.filter(i => ['SUCCESS', 'SKIPPED', 'FAILED', 'INVALID'].includes(i.status)).length;
+    const done = queue.filter(i => ['SUCCESS', 'SKIPPED', 'FAILED', 'INVALID', 'DRYRUN'].includes(i.status)).length;
     const failed = queue.filter(i => i.status === 'FAILED').length;
     progressStats.textContent = `${done} / ${total}`;
     progressBar.style.width = `${total ? Math.round(done / total * 100) : 0}%`;
@@ -763,7 +1026,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
       if (fixed) await chrome.storage.local.set({ fasihQueue: queue });
-      queueMode = data.queueMode || (queue.some(q => q.kbliTask) ? 'DC1' : 'DC0');
+      queueMode = data.queueMode || (queue.some(q => q.mode === 'API') ? 'API' : (queue.some(q => q.kbliTask) ? 'DC1' : 'DC0'));
+      if (o.apiDryRun !== undefined && checkApiDryRun) checkApiDryRun.checked = o.apiDryRun;
+      refreshBackupCount();
       showFileInfo(data.excelFileName || 'File Excel');
     }
     setActiveMode(queueMode || data.activeMode || 'DC0', { silent: true });

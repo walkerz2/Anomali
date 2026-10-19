@@ -587,7 +587,7 @@ body {
 /* ===== Menu #DC_0 / #DC_1 ===== */
 .mode-tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -599,7 +599,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 9px 8px;
+  padding: 9px 6px;
   border: none;
   border-radius: 7px;
   background: transparent;
@@ -704,3 +704,33 @@ body {
   white-space: nowrap;
 }
 
+
+
+/* ===== Menu Ubah Variabel (API) ===== */
+.tag-api { background: #E3EEFB; color: #0D3B7A; }
+.mode-tab.active .tag-api { background: #FFFFFF; color: #0D3B7A; }
+.api-dry { margin-bottom: 8px; }
+.api-tools { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.btn-warn { color: #B42318; border-color: #E53935; }
+.btn-warn:hover { background: #FDECEC; }
+.api-note { font-size: 10.5px; color: var(--text-muted); line-height: 1.4; margin-bottom: 10px; }
+.status-dryrun { background-color: #E3EEFB; color: #0D3B7A; }
+
+.row-note-info { color: #0D3B7A; }
+.row-note-ok { color: #2E7D27; }
+
+.api-picker-wrap { margin-bottom: 8px; }
+.btn-pick { width: 100%; justify-content: center; font-weight: 600; color: #0D3B7A; border-color: #1565C0; }
+.api-picker { margin-top: 6px; border: 1px solid #C9D6EA; border-radius: 8px; padding: 8px; background: #F7FAFE; }
+.api-picker-info { font-size: 10.5px; color: var(--text-muted); margin-bottom: 6px; line-height: 1.4; }
+#apiPickerSearch { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #C9D6EA; border-radius: 6px; font-size: 12px; margin-bottom: 6px; }
+.api-picker-list { max-height: 230px; overflow-y: auto; background: #fff; border: 1px solid #E1E8F2; border-radius: 6px; }
+.api-picker-sec { position: sticky; top: 0; background: #E3EEFB; color: #0D3B7A; font-size: 10px; font-weight: 700; padding: 3px 8px; text-transform: uppercase; letter-spacing: .3px; }
+.api-picker-item { display: flex; gap: 6px; align-items: flex-start; padding: 5px 8px; border-bottom: 1px solid #F0F3F8; cursor: pointer; font-size: 11.5px; line-height: 1.35; }
+.api-picker-item:hover { background: #F2F7FD; }
+.api-picker-item input { margin-top: 2px; flex: none; }
+.api-picker-item small { display: block; color: var(--text-muted); font-size: 10px; font-family: ui-monospace, Consolas, monospace; }
+.api-picker-item.picked { background: #FFF5E8; }
+.api-picker-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 11px; }
+.api-picker-foot #btnApiPickDownload { margin-left: auto; }
+.btn-link { background: none; border: none; color: #1565C0; font-size: 11px; cursor: pointer; padding: 0; text-decoration: underline; }

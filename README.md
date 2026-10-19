@@ -13,6 +13,26 @@
 - Fokus unit usaha sesuai kolom `nama_usaha`; satu dokumen = satu eksekusi (tidak diulang otomatis bila halaman berpindah).
 - Tombol **Diagnosa**: membaca struktur halaman FASIH di tab aktif (tanpa mengubah apa pun) untuk pemeriksaan bila bot macet.
 
+
+## Menu Ketiga · API Ubah Variabel
+
+Alurnya seperti #DC_00/#DC_01, tetapi variabelnya bebas diubah sesuai dataKey form FASIH (selain KBLI):
+1. Buka satu dokumen FASIH di tab aktif → klik **① Pilih Variabel** → centang variabel yang ingin diganti (bisa dicari).
+2. Klik **② Unduh Template** → Excel berisi kolom `link_fasih_sm`, `nama_usaha`, `kode_catatan`, dan satu kolom per variabel; sheet PETUNJUK memuat kode pilihan tiap variabel.
+3. Isi nilai baru → upload → Mulai (selalu jalankan mode **Uji coba (dry run)** terlebih dahulu).
+
+- Judul kolom cukup nama variabel (misal `r27a`); bot mencocokkan `r27a#2001` dsb. secara otomatis. Bila dokumen berisi beberapa usaha, `nama_usaha` dipakai untuk memilih usaha yang tepat.
+- Kolom `kode_catatan` menentukan catatan pada setiap variabel yang berubah (kosong = #1):
+  - **#1**: Perbaikan karena kesalahan pemahaman konsep oleh petugas / kesalahan entri kuesioner
+  - **#2**: Hasil konfirmasi/revisit kepada responden
+  - **#3**: Informasi dari survei rutin/data administrasi
+  - **#4**: Metode atau informasi lain selain kriteria kode
+- **Variabel KBLI tidak diubah di menu ini** (kbli, kbli_genai, kbli_akhir, kategori) — gunakan menu #DC_01 · Ganti KBLI.
+- Sel kosong = tidak diubah; `#KOSONG` = kosongkan jawaban.
+- **Uji coba (dry run)** aktif secara bawaan: menampilkan perubahan tanpa menyimpan.
+- Saat jalan sungguhan: backup otomatis dibuat (`.json`) → simpan lewat API → form dibuka ulang → Kirim (dibatalkan bila FASIH menampilkan GALAT) → Approve.
+- Tombol **Backup** / **Restore** untuk mengunduh dan mengembalikan data awal; tombol **Cari dataKey** untuk melihat nama variabel di dokumen yang sedang dibuka.
+
 ## 📋 Alur Kerja Otomasi (Workflow)
 
 Untuk setiap baris pada file Excel:
@@ -40,7 +60,7 @@ Untuk setiap baris pada file Excel:
        - Jika Tahun Beroperasi **`> 2025`**: Pertanyaan yang diberi catatan adalah:
          👉 **`31. a. Nilai pendapatan barang dan jasa*`**
    - Klik tombol **Catatan** (icon komentar) pada pertanyaan target tersebut.
-   - **Pengecekan Catatan yang Sudah Ada**: Jika pada modal catatan (atau riwayat catatan pertanyaan tersebut) sudah terdeteksi isian **`#DC_00`** (atau `#DC_03` lama), ekstensi **tidak akan mengisi lagi** (mencegah komentar ganda/duplikat). Ekstensi hanya memastikan toggle konfirmasi galat berstatus aktif (ON), lalu menutup modal catatan dan langsung lanjut.
+   - **Smart Skip pada Catatan yang Sudah Ada**: Jika pada modal catatan (atau riwayat catatan pertanyaan tersebut) sudah terdeteksi isian **`#DC_00`** atau **`#DC_01`**, dokumen langsung ditandai **Dilewati (SKIPPED)**. Bot tidak mengetik ulang, tidak mengirim survei, dan tidak melakukan langkah Approve. Tab dokumen akan segera ditutup dan antrian otomatis melompat ke baris berikutnya.
    - Jika belum ada catatan: Mengisi modal catatan dengan teks **Catatan Utama** (default **`#DC_00`**, berlaku untuk semua kuisioner termasuk `SE2026 - UB`). Catatan tambahan (#DC12 pada butir b) sudah dihapus.
    - **Mengaktifkan Toggle Switch Konfirmasi Galat** (`switch-cl-...-control` / Sesuai Lapangan) agar peringatan galat otomatis terkonfirmasi dan tidak memblokir saat submit survei.
    - Mengklik tombol kirim/simpan catatan di modal.
@@ -50,8 +70,14 @@ Untuk setiap baris pada file Excel:
    - Mencari bagian **"Tampilkan Anomali Usaha dan Keluarga"**.
    - Mengaktifkan toggle switch konfirmasi anomali/galat agar seluruh anomali tervalidasi.
 7. **Kirim Survei**: Mengklik tombol **Kirim** di pojok kanan atas formulir.
-8. **Konfirmasi Pengiriman**: Mengonfirmasi modal pop-up kirim survei bawaan FASIH.
-9. **Lanjut ke Antrian Berikutnya**: Menutup tab (opsional) dan melanjutkan baris link berikutnya dari Excel hingga selesai. (Tombol **Stop** dan **Jeda/Pause** dapat ditekan kapan saja untuk menghentikan seketika).
+8. **Konfirmasi Pengiriman & Auto Approve**:
+   - Mengonfirmasi modal pop-up kirim survei bawaan FASIH.
+   - Jika opsi Auto Approve aktif: otomatis beralih ke halaman review dan mengklik tombol **✓ Approve** di toolbar.
+9. **Penutupan Tab & Transisi Otomatis (Anti-Stuck)**:
+   - Tab dokumen yang sudah selesai (`SUCCESS`) atau dilewati (`SKIPPED`) langsung ditutup secara otomatis.
+   - **Safe Single-Tab Handling**: Jika hanya ada 1 tab di jendela browser, tab baru dibuka terlebih dahulu sebelum tab lama ditutup agar jendela browser tidak ikut tertutup.
+   - **Bypass Beforeunload**: Memblokir dialog konfirmasi FASIH *"Leave site?"* sehingga penutupan tab tidak terhambat.
+   - Antrian otomatis melompat ke baris berikutnya tanpa perlu intervensi manual pengguna. (Tombol **Stop** dan **Jeda/Pause** dapat ditekan kapan saja untuk menghentikan seketika).
 
 ---
 
@@ -63,7 +89,7 @@ Untuk setiap baris pada file Excel:
 4. Klik tombol **Load unpacked** (Muat yang belum dibongkar) di pojok kiri atas.
 5. Pilih folder ekstensi ini:
    ```
-   D:\Pekerjaan BPS1200\Tim Inovasi\Website\extension_fasih_ntb
+   D:\Anomali2
    ```
 6. Ekstensi **TUNTAS SE2026** akan muncul dan siap digunakan.
 7. Sematkan (Pin) ikon ekstensi di toolbar Chrome agar mudah diakses.
@@ -90,7 +116,10 @@ Untuk setiap baris pada file Excel:
      - *Lewati Kirim (Simpan Catatan & Lanjut Antrian)*
      - *Hentikan di Sini (Periksa Manual)*
    - **Kirim survei & konfirmasi modal di akhir**: Centang untuk otomatis submit survei.
-   - **Tutup tab setelah survei berhasil dikirim**: Centang untuk menghemat memori browser.
+   - **Tutup tab setelah survei berhasil dikirim**: Centang untuk menutup tab secara otomatis (berlaku untuk dokumen yang selesai maupun yang dilewati/skip).
+    - **Auto Approve**: Centang untuk otomatis membuka halaman review dan mengklik tombol Approve setelah survei berhasil disubmit.
+    - **Notifikasi Webhook (n8n / Telegram)**: Mengirim notifikasi otomatis saat terjadi error atau circuit breaker aktif ke endpoint Webhook (lengkap dengan identitas PC, nomor baris Excel, nama usaha, ID Assignment, dan penyebab error).
+    - **Circuit Breaker**: Pengaman otomatis yang akan menjeda antrian jika terjadi 3 kegagalan beruntun akibat server FASIH down atau timeout jaringan.
 5. **Mulai Eksekusi**:
    - Klik tombol **Mulai Otomasi**.
    - Ekstensi akan membuka tab, memproses alur step-by-step, dan memperbarui tabel status secara real-time.
@@ -108,7 +137,7 @@ Untuk setiap baris pada file Excel:
 ## 📁 Struktur Berkas
 
 ```
-extension_fasih_ntb/
+Anomali2/
 ├── manifest.json            # Konfigurasi Chrome Extension Manifest V3
 ├── icons/                   # Ikon ekstensi (16px, 48px, 128px)
 ├── lib/

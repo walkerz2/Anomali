@@ -34,6 +34,10 @@
           <span class="mode-code tag-dc1">#DC_01</span>
           <span class="mode-name">Ganti KBLI</span>
         </button>
+        <button class="mode-tab" data-mode="API" role="tab" type="button">
+          <span class="mode-code tag-api">API</span>
+          <span class="mode-name">Ubah Variabel</span>
+        </button>
       </nav>
 
       <p class="mode-desc" id="modeDesc"></p>
@@ -99,6 +103,32 @@
               <div class="static-field">Kode KBLI (13.g)</div>
             </div>
           </div>
+        </div>
+        <!-- Pengaturan khusus Ubah Variabel (API) -->
+        <div class="mode-panel hidden" data-panel="API">
+          <label class="checkbox-label api-dry">
+            <input type="checkbox" id="checkApiDryRun" checked>
+            <span><b>Uji coba (dry run)</b> — hanya menampilkan perubahan, tidak menyimpan apa pun</span>
+          </label>
+          <div class="api-picker-wrap">
+            <button id="btnApiPickVars" class="btn-template btn-pick" type="button" title="Buka satu dokumen FASIH di tab aktif, lalu klik untuk memuat daftar variabelnya">① Pilih Variabel (dari dokumen FASIH yang terbuka)</button>
+            <div id="apiPicker" class="api-picker hidden">
+              <div id="apiPickerInfo" class="api-picker-info"></div>
+              <input id="apiPickerSearch" type="search" placeholder="Cari pertanyaan atau nama variabel..." autocomplete="off">
+              <div id="apiPickerList" class="api-picker-list"></div>
+              <div class="api-picker-foot">
+                <span id="apiPickCount">0 dipilih</span>
+                <button id="btnApiPickClear" class="btn-link" type="button">Kosongkan</button>
+                <button id="btnApiPickDownload" class="btn-template btn-inline" type="button" disabled>② Unduh Template</button>
+              </div>
+            </div>
+          </div>
+          <div class="api-tools">
+            <button id="btnApiBackup" class="btn-template btn-inline" type="button" title="Unduh semua backup data sebelum diubah (.json)">Backup (<span id="apiBackupCount">0</span>)</button>
+            <button id="btnApiRestore" class="btn-template btn-inline btn-warn" type="button" title="Kembalikan dokumen ke isi sebelum diubah lewat API">Restore</button>
+            <button id="btnApiFindKey" class="btn-template btn-inline" type="button" title="Cari nama variabel (dataKey) dari label pertanyaan di dokumen yang sedang dibuka">Cari dataKey</button>
+          </div>
+          <p class="api-note">Variabel KBLI tidak diubah di sini (pakai menu #DC_01). Setiap variabel yang berubah diberi catatan sesuai kolom <b>kode_catatan</b> (#DC_01–#DC_04; kosong = #DC_01). Perubahan lewat API melewati validasi form. Setelah disimpan, bot membuka form dan menekan <b>Kirim</b>; bila FASIH menampilkan <b>GALAT</b>, Kirim dibatalkan.</p>
         </div>
 
         <div class="config-grid">

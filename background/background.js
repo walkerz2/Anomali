@@ -98,7 +98,8 @@ let runnerState = {
     ssoPassword: 'Mitra123',
     pcName: 'PC 1',
     enableWebhook: true,
-    webhookUrl: DEFAULT_WEBHOOK_URL
+    webhookUrl: DEFAULT_WEBHOOK_URL,
+    apiDryRun: true
   }
 };
 
@@ -163,7 +164,7 @@ async function sendWebhookErrorNotification({
 
     const pcName = String(opts.pcName || 'PC 1').trim() || 'PC 1';
     const kategori = event === 'TEST_WEBHOOK' ? 'TEST_WEBHOOK' : classifyErrorCategory(errorMsg);
-    const modeCode = (item && item.mode === 'DC1') || opts.mode === 'DC1' ? '#DC_01' : '#DC_00';
+    const modeCode = (item && item.mode === 'DC1') || opts.mode === 'DC1' ? '#DC_01' : ((item && item.mode === 'API') || opts.mode === 'API' ? 'API_VARIABEL' : '#DC_00');
     const rowNum = item ? (item.excelRowNum || (index !== null ? index + 1 : '-')) : (index !== null ? index + 1 : '-');
     const namaUsaha = (item && item.nama_usaha) || '-';
     const linkFasih = (item && (item.link_fasih_sm || item.link)) || (runnerState && runnerState.activeTargetUrl) || '-';
@@ -400,6 +401,132 @@ async function safeCloseTab(tabId, { allowSingleTabWindow = false } = {}) {
   }
 }
 
+
+let apiHelperTabId = null;
+let apiHelperNav = [];
+
+// Listener perpindahan URL pada tab bantu API
+chrome.tabs.onUpdated.addListener((tId, c) => {
+  if (tId === apiHelperTabId && c.url) apiHelperNav.push(c.url);
+});
+
+// Jalankan pekerjaan API di tab bantu sebagai job + tanya status berkala
+async function callApiJob(message, timeoutMs = 180000) {
+  const tabId = await getApiHelperTab();
+  const jobId = `j${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const start = await sendTabMessageWithRetry(tabId, { ...message, jobId });
+  if (!start || start.status !== 'STARTED') return start;
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    await sleep(700);
+    if (runnerState.status === 'STOPPED') return { status: 'ABORTED' };
+    let st;
+    try { st = await chrome.tabs.sendMessage(tabId, { action: 'API_JOB_STATUS', jobId }); }
+    catch (e) { st = { status: 'DISCONNECTED', error: e.message || String(e) }; }
+    if (st && st.status === 'RUNNING') continue;
+    if (st && st.status === 'UNKNOWN_JOB') return { status: 'DISCONNECTED', error: 'halaman tab bantu dimuat ulang saat menyimpan' };
+    return st;
+  }
+  return { status: 'DISCONNECTED', error: 'waktu tunggu API habis' };
+}
+
+function assignmentIdOf(item) {
+  if (item.assignmentId && /^[0-9a-f-]{36}$/i.test(item.assignmentId)) return item.assignmentId;
+  const ids = String(item.link_fasih_sm || item.link || '').match(UUID_RE_GLOBAL) || [];
+  return ids.length ? ids[ids.length - 1] : null;
+}
+
+// Tab bantu (halaman FASIH tanpa form) untuk memanggil API — dipakai ulang selama antrian berjalan
+async function getApiHelperTab() {
+  if (apiHelperTabId) {
+    try { await chrome.tabs.get(apiHelperTabId); return apiHelperTabId; } catch (e) { apiHelperTabId = null; }
+  }
+  const t = await chrome.tabs.create({ url: 'https://fasih-sm.bps.go.id/app/', active: false });
+  apiHelperTabId = t.id;
+  apiHelperNav = [];
+  await waitForTabComplete(t.id, 35000);
+  await randomSleep(1500, 2200);
+  return t.id;
+}
+
+function closeApiHelperTab() {
+  if (apiHelperTabId) { chrome.tabs.remove(apiHelperTabId).catch(() => {}); apiHelperTabId = null; }
+}
+
+const ringkasPerubahan = (changes) => (changes || []).slice(0, 8)
+  .map((c) => `${c.dataKey}: ${String(c.dari).slice(0, 30)} → ${String(c.ke).slice(0, 30)}`).join('; ') +
+  ((changes || []).length > 8 ? ` (+${changes.length - 8} lagi)` : '');
+
+// Hasil: { done: true } bila baris selesai di sini (uji coba / gagal), atau { done: false, note } untuk lanjut Kirim lewat form
+async function runApiStep(item, index) {
+  const dryRun = runnerState.options.apiDryRun !== false;
+  const id = assignmentIdOf(item);
+  if (!id) { await updateItemStatus(index, 'FAILED', 'assignment_id tidak terbaca dari link / kolom'); return { done: true }; }
+  await updateItemStatus(index, 'PROCESSING', dryRun ? 'Uji coba (dry run) lewat API...' : 'Menyimpan perubahan lewat API...');
+
+  const row = { assignmentId: id, values: item.apiValues || {}, remarks: item.apiRemarks || {}, namaUsaha: item.namaUsahaExcel || item.nama_usaha || '' };
+  const autoNote = item.apiNoteCode || '#1';
+  const call = async (dr) => {
+    try { return await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote }); }
+    catch (e) { return { status: 'ERROR', error: e.message || String(e) }; }
+  };
+  let res = await call(dryRun);
+  let verifikasi = '';
+  for (let coba = 1; coba <= 2 && res && res.status === 'DISCONNECTED' && runnerState.status === 'RUNNING'; coba++) {
+    const jejak = apiHelperNav.length ? ` [tab bantu: ${apiHelperNav.slice(-3).join(' → ')}]` : '';
+    console.warn('[TUNTAS] API terputus:', res.error, jejak);
+    closeApiHelperTab();
+    await sleep(2000);
+    await updateItemStatus(index, 'PROCESSING', `Koneksi terputus, memeriksa ulang ke server (${coba})...`);
+    const cek = await call(true);
+    if (!cek || cek.status !== 'DONE') { res = { status: 'ERROR', error: `koneksi ke tab bantu terputus (${res.error})${jejak}` }; break; }
+    if (dryRun) { res = cek; break; }
+    if (cek.result.noChange) {
+      const b = (await chrome.storage.local.get(['apiBackups'])).apiBackups || {};
+      res = { status: 'DONE', result: { ...cek.result, version: b[id] ? b[id].version : cek.result.version, versionAfter: cek.result.version } };
+      verifikasi = ' (terverifikasi ulang)';
+      break;
+    }
+    res = await call(false);
+  }
+  if (res && res.status === 'ABORTED') { await updateItemStatus(index, 'PENDING', 'Diberhentikan (Stop)'); return { done: true }; }
+  if (!res || res.status !== 'DONE') {
+    await updateItemStatus(index, 'FAILED', `API: ${(res && res.error) || 'tidak ada respons'}`);
+    return { done: true };
+  }
+  const r = res.result;
+  const ringkas = r.noChange ? 'tidak ada perubahan (nilai sudah sama)' : `${r.nChanges} perubahan: ${ringkasPerubahan(r.changes)}`;
+
+  if (dryRun) {
+    await updateItemStatus(index, 'DRYRUN', `UJI ${r.code || ''} (v${r.version}): ${ringkas}`);
+    return { done: true };
+  }
+  if (r.backup) {
+    const store = await chrome.storage.local.get(['apiBackups']);
+    const backups = store.apiBackups || {};
+    if (!backups[id]) backups[id] = r.backup;
+    await chrome.storage.local.set({ apiBackups: backups });
+  }
+  if (verifikasi) return { done: false, note: `API tersimpan${verifikasi}, v${r.versionAfter}` };
+  return { done: false, note: r.noChange ? 'API: tidak ada perubahan' : `API v${r.version}→v${r.versionAfter}: ${ringkas}` };
+}
+
+async function restoreApiBackups(ids, dryRun) {
+  const store = await chrome.storage.local.get(['apiBackups']);
+  const backups = store.apiBackups || {};
+  const targets = (ids && ids.length ? ids : Object.keys(backups)).filter((id) => backups[id]);
+  const results = [];
+  const tabId = await getApiHelperTab();
+  for (const id of targets) {
+    const res = await callApiJob({ action: 'API_RESTORE', backup: backups[id], dryRun });
+    results.push({ id, code: backups[id].code, ok: res && res.status === 'DONE', error: res && res.error,
+      versionBefore: res && res.result && res.result.versionBefore, versionAfter: res && res.result && res.result.versionAfter });
+    broadcastToPopup({ action: 'UPDATE_STEP', step: 'RESTORE', details: `${results.length}/${targets.length} ${backups[id].code || id}` });
+  }
+  closeApiHelperTab();
+  return results;
+}
+
 // Fungsi pemroses 1 item antrian secara independen
 async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
   if (runnerState.status !== 'RUNNING') {
@@ -425,6 +552,21 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
 
   // Tambahkan /edit langsung di belakang link_fasih_sm untuk antrian
   const targetUrl = formatEditUrl(rawUrl, runnerState.options && runnerState.options.periodeId);
+
+    // ===== Menu "Ubah Variabel" (API): data diubah lewat API SEBELUM form dibuka =====
+  // (bila form dibuka lebih dulu, Kirim akan menimpa perubahan API dengan data lama di form)
+  let apiNote = '';
+  if (item.mode === 'API') {
+    const pre = await runApiStep(item, index);
+    if (pre.done) {
+      return { tabIdToClose: prevTabIdToClose };
+    }
+    apiNote = pre.note;
+    if (!runnerState.options.autoSubmitSurvey) {
+      await updateItemStatus(index, 'SUCCESS', `Tersimpan lewat API (tanpa Kirim form) | ${apiNote}`);
+      return { tabIdToClose: prevTabIdToClose };
+    }
+  }
 
   await updateItemStatus(index, 'OPENING_TAB');
 
@@ -519,7 +661,9 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
         isActiveTabTest: false,
         mode: (queue[index] && queue[index].mode) || runnerState.options.mode,
         kbliTask: (queue[index] && queue[index].kbliTask) || null,
-        targetUsaha: (queue[index] && queue[index].targetUsaha) || ''
+        targetUsaha: (queue[index] && queue[index].targetUsaha) || '',
+        apiFinalize: (queue[index] && queue[index].mode === 'API') || runnerState.options.mode === 'API',
+        blockOnGalat: (queue[index] && queue[index].mode === 'API') || runnerState.options.mode === 'API'
       }
     }, 5);
 
@@ -1266,6 +1410,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'STOP_QUEUE') {
+    closeApiHelperTab();
     stopKeepAlive();
     queueRunToken++;
     isQueueRunning = false;
@@ -1301,6 +1446,49 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     broadcastToPopup({ action: 'QUEUE_STOPPED' });
     sendResponse({ success: true });
     return false;
+  }
+
+    // ---------- Backup & restore menu API ----------
+  if (request.action === 'API_BACKUP_SAVE') {
+    (async () => {
+      const b = request.backup;
+      if (b && b.assignmentId) {
+        const store = await chrome.storage.local.get(['apiBackups']);
+        const backups = store.apiBackups || {};
+        if (!backups[b.assignmentId]) { backups[b.assignmentId] = b; await chrome.storage.local.set({ apiBackups: backups }); }
+      }
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+  if (request.action === 'API_BACKUP_INFO') {
+    chrome.storage.local.get(['apiBackups']).then((d) => {
+      const b = d.apiBackups || {};
+      sendResponse({ count: Object.keys(b).length, backups: b });
+    });
+    return true;
+  }
+  if (request.action === 'API_RESTORE_BACKUPS') {
+    (async () => {
+      try {
+        const results = await restoreApiBackups(request.ids || [], request.dryRun !== false);
+        if (request.dryRun === false) {
+          const okIds = results.filter((r) => r.ok).map((r) => r.id);
+          const d = await chrome.storage.local.get(['apiBackups']);
+          const b = d.apiBackups || {};
+          okIds.forEach((id) => { delete b[id]; });
+          await chrome.storage.local.set({ apiBackups: b });
+        }
+        sendResponse({ ok: true, results });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message || String(e) });
+      }
+    })();
+    return true;
+  }
+  if (request.action === 'API_CLEAR_BACKUPS') {
+    chrome.storage.local.set({ apiBackups: {} }).then(() => sendResponse({ ok: true }));
+    return true;
   }
 
   if (request.action === 'GET_RUNNER_STATE') {
