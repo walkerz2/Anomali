@@ -21,6 +21,7 @@
   },
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "tabs",
     "activeTab",
     "scripting"
@@ -44,6 +45,7 @@
         "*://*.bps.go.id/*"
       ],
       "js": [
+        "content/fasih_api.js",
         "content/content.js"
       ],
       "run_at": "document_idle"

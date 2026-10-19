@@ -18,6 +18,14 @@
   if (window.__fasihAutomationInjected) return;
   window.__fasihAutomationInjected = true;
 
+  // Netralkan sebelum-tutup (beforeunload) agar Chrome tidak pernah memunculkan dialog 'Tinggalkan situs?' yang memblokir penutupan tab
+  try {
+    window.addEventListener('beforeunload', (e) => {
+      e.stopImmediatePropagation();
+    }, true);
+    window.onbeforeunload = null;
+  } catch (e) {}
+
   console.log('[TUNTAS] Content script loaded on:', window.location.href);
 
   // State Eksekusi untuk Kontrol Pause & Stop Segera
@@ -2338,6 +2346,17 @@
     return isSwitchChecked(switchControl);
   }
 
+  // Angka GALAT di pop-up Kirim FASIH (kartu "GALAT / 0 / Perlu diperbaiki"); null bila pop-up tidak terbaca
+  function readKirimModalGalat() {
+    const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [data-kb-dialog-content], [role="alertdialog"]'));
+    for (const d of dialogs) {
+      const t = (d.innerText || '').replace(/\s+/g, ' ');
+      const m = t.match(/GALAT\s*(\d+)/i);
+      if (m) return parseInt(m[1], 10);
+    }
+    return null;
+  }
+
   // 10. Tombol Kirim Survei di Pojok Kanan Atas
   function findTopRightSubmitSurveyButton() {
     const inDialog = (el) => el.closest('[role="dialog"], [role="alertdialog"], [data-kb-dialog-content], #fasih-custom-confirm-panel');
@@ -2984,8 +3003,9 @@
     if (alreadyHasComment) {
       notifyStep('STEP_5_ALREADY_EXISTS', `[${indexStr}] Remark ${foundCode} sudah ada pada ${targetCode}.`, 'warning');
 
-      await closeCommentModal(textarea, modalDialog);
-      await ensureCommentModalClosed();
+      if (closeModalOnExisting) {
+        await closeCommentModal(textarea, modalDialog);
+      }
 
       return { ok: true, alreadyExists: true, foundCode };
     }
@@ -4269,7 +4289,7 @@
           exactCodeOnly: tq.exactCodeOnly === true,
           stepDelay,
           indexStr: qIndexStr,
-          closeModalOnExisting: true
+          closeModalOnExisting: Boolean(options.isActiveTabTest || options.closeTabOnComplete === false)
         });
 
         if (!commentRes) {
@@ -4286,7 +4306,9 @@
           lastFoundExistingCode = commentRes.foundCode;
           lastFoundExistingReason = `Remark ${commentRes.foundCode} sudah ada pada ${tq.code} (${usahaName})`;
           notifyStep('STEP_5_ALREADY_EXISTS', `${lastFoundExistingReason}. Langsung tutup tab & lanjut baris berikutnya...`, 'warning');
-          await ensureCommentModalClosed();
+          if (options.isActiveTabTest || options.closeTabOnComplete === false) {
+            await ensureCommentModalClosed();
+          }
           return {
             success: true,
             skipped: true,
@@ -4369,7 +4391,8 @@
       await randomSleep(500, 800);
 
       window.scrollTo({ top: 0, behavior: 'auto' });
-      let topSubmitBtn = await waitForElement(findTopRightSubmitSurveyButton, 12000);
+      let topSubmitBtn = await waitForElement(findTopRightSubmitSurveyButton,
+    readKirimModalGalat, 12000);
       if (!topSubmitBtn) {
         const reviewUrlNoKirim = window.location.href.split('?')[0].split('#')[0].replace(/\/+$/, '').replace(/\/edit$/, '');
         notifyStep('STEP_6_NO_KIRIM', 'Tombol Kirim tidak ada: dokumen kemungkinan sudah terkirim. Lanjut ke Approve.', 'warning');
@@ -4617,6 +4640,35 @@
           executionState.isRunning = false;
           sendResponse({ status: error.name === 'AbortError' ? 'ABORTED' : 'ERROR', error: error.message || String(error) });
         });
+      return true;
+    }
+
+    // ---------- Menu "Ubah Variabel" (API FASIH) ----------
+    // Pekerjaan panjang (simpan/restore) dijalankan sebagai job: balasan langsung, status ditanya berkala
+    // agar tidak bergantung pada satu saluran pesan yang lama terbuka.
+    if (request.action === 'API_JOB_STATUS') {
+      const j = (self.__tuntasJobs || {})[request.jobId];
+      sendResponse(j ? (j.done ? j.res : { status: 'RUNNING' }) : { status: 'UNKNOWN_JOB' });
+      return false;
+    }
+    if (request.action === 'API_APPLY' || request.action === 'API_RESTORE' || request.action === 'API_FIND_KEYS' || request.action === 'API_LIST_VARS') {
+      const api = self.TUNTAS_API;
+      if (!api) { sendResponse({ status: 'ERROR', error: 'Mesin API belum dimuat — refresh halaman FASIH' }); return false; }
+      const onBackup = (backup) => chrome.runtime.sendMessage({ action: 'API_BACKUP_SAVE', backup }).catch(() => {});
+      const job = request.action === 'API_APPLY' ? api.applyRow(request.row, { dryRun: request.dryRun !== false, autoNote: request.autoNote ?? '#1', onBackup })
+        : request.action === 'API_RESTORE' ? api.restore(request.backup, { dryRun: request.dryRun !== false })
+        : request.action === 'API_LIST_VARS' ? api.listVars(request.assignmentId)
+        : api.findKeys(request.assignmentId, request.query || '');
+      const wrapped = job.then((result) => ({ status: 'DONE', result }))
+        .catch((e) => ({ status: 'ERROR', error: (e && e.message) || String(e) }));
+      if (request.jobId) {
+        self.__tuntasJobs = self.__tuntasJobs || {};
+        const rec = self.__tuntasJobs[request.jobId] = { done: false };
+        wrapped.then((res) => { rec.done = true; rec.res = res; });
+        sendResponse({ status: 'STARTED' });
+        return false;
+      }
+      wrapped.then(sendResponse);
       return true;
     }
 
