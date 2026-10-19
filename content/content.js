@@ -18,6 +18,14 @@
   if (window.__fasihAutomationInjected) return;
   window.__fasihAutomationInjected = true;
 
+  // Netralkan sebelum-tutup (beforeunload) agar Chrome tidak pernah memunculkan dialog 'Tinggalkan situs?' yang memblokir penutupan tab
+  try {
+    window.addEventListener('beforeunload', (e) => {
+      e.stopImmediatePropagation();
+    }, true);
+    window.onbeforeunload = null;
+  } catch (e) {}
+
   console.log('[TUNTAS] Content script loaded on:', window.location.href);
 
   // State Eksekusi untuk Kontrol Pause & Stop Segera

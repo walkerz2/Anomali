@@ -430,6 +430,7 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
 
   let tab = null;
   let shouldCloseCurrentTab = false;
+  let response = null;
   try {
     // Buat tab baru langsung dengan URL /edit
     tab = await chrome.tabs.create({ url: targetUrl, active: true });
@@ -510,7 +511,7 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
     ].includes(stepName);
 
     // Kirim pesan ke content script di tab (isActiveTabTest: false untuk antrian)
-    let response = await sendTabMessageWithRetry(tab.id, {
+    response = await sendTabMessageWithRetry(tab.id, {
       action: 'EXECUTE_FASIH_WORKFLOW',
       options: {
         ...runnerState.options,
@@ -759,6 +760,40 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
       }
       shouldCloseCurrentTab = true;
     }
+
+    // Jika dilewati (remark sudah ada, submit sudah ada, no approve), langsung lanjut tanpa jeda lama
+    const isFastSkip = Boolean(
+      response &&
+      response.status === 'DONE' &&
+      response.result &&
+      (response.result.alreadyHasRemark || response.result.noApproveButton || response.result.skipped || response.result.alreadySubmitted)
+    );
+
+    const shouldCloseByOption = runnerState.options.closeTabOnComplete !== false;
+    let tabIdToClose = null;
+
+    if (shouldCloseCurrentTab && shouldCloseByOption && tab && tab.id) {
+      if (!isFastSkip) {
+        await randomSleep(400, 750);
+      }
+
+      const closedNow = await safeCloseTab(tab.id);
+      if (closedNow) {
+        tabIdToClose = null;
+        if (runnerState.activeTabId === tab.id) {
+          runnerState.activeTabId = null;
+          await chrome.storage.local.set({ runnerState });
+        }
+        await sleep(isFastSkip ? 150 : 400);
+      } else {
+        // Jika window hanya punya 1 tab atau Chrome sempat mengunci tab strip,
+        // serahkan tab.id ini ke iterasi berikutnya agar ditutup begitu tab baris selanjutnya dibuka!
+        tabIdToClose = tab.id;
+        await sleep(isFastSkip ? 150 : 400);
+      }
+    }
+
+    return { tabIdToClose };
   } catch (err) {
     if (runnerState.status === 'STOPPED') {
       await updateItemStatus(index, 'PENDING', 'Diberhentikan (Stop)');
@@ -774,42 +809,14 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
     } else {
       runnerState.consecutiveFailures = 0;
     }
-    shouldCloseCurrentTab = true;
-  }
-
-  // Jika dilewati (remark sudah ada, submit sudah ada, no approve), langsung lanjut tanpa jeda lama
-  const isFastSkip = Boolean(
-    response &&
-    response.status === 'DONE' &&
-    response.result &&
-    (response.result.alreadyHasRemark || response.result.noApproveButton || response.result.skipped || response.result.alreadySubmitted)
-  );
-
-  const shouldCloseByOption = runnerState.options.closeTabOnComplete !== false;
-  let tabIdToClose = null;
-
-  if (shouldCloseCurrentTab && shouldCloseByOption && tab && tab.id) {
-    if (!isFastSkip) {
-      await randomSleep(400, 750);
+    if (runnerState.options.closeTabOnComplete !== false && tab && tab.id) {
+      try {
+        const closed = await safeCloseTab(tab.id);
+        return { tabIdToClose: closed ? null : tab.id };
+      } catch (eClose) {}
     }
-
-    const closedNow = await safeCloseTab(tab.id);
-    if (closedNow) {
-      tabIdToClose = null;
-      if (runnerState.activeTabId === tab.id) {
-        runnerState.activeTabId = null;
-        await chrome.storage.local.set({ runnerState });
-      }
-      await sleep(isFastSkip ? 150 : 400);
-    } else {
-      // Jika window hanya punya 1 tab atau Chrome sempat mengunci tab strip,
-      // serahkan tab.id ini ke iterasi berikutnya agar ditutup begitu tab baris selanjutnya dibuka!
-      tabIdToClose = tab.id;
-      await sleep(isFastSkip ? 150 : 400);
-    }
+    return { tabIdToClose: null };
   }
-
-  return { tabIdToClose };
 }
 
 // Runner utama berbasis perulangan sekuensial (while-loop) yang stabil, anti-stuck & anti-terminasi SW
@@ -848,7 +855,13 @@ async function startQueueRunner(fromIndex = null, { forceRestart = false } = {})
       await chrome.storage.local.set({ runnerState });
 
       // Proses 1 baris antrian secara sekuensial dan tunggu sampai selesai
-      const res = await processQueueItemSingle(queue, nextIdx, prevTabIdToClose);
+      let res = null;
+      try {
+        res = await processQueueItemSingle(queue, nextIdx, prevTabIdToClose);
+      } catch (errProc) {
+        console.error('[FASIH BG] Error saat memproses baris', nextIdx, errProc);
+        res = { tabIdToClose: prevTabIdToClose };
+      }
       if (queueRunToken !== myRunToken) break;
       prevTabIdToClose = (res && res.tabIdToClose) || null;
 
