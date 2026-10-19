@@ -1,11 +1,12 @@
 # TUNTAS SE2026 - Tracking dan Tindak Lanjut Anomali Sensus
 
-## Dua Menu
+## Tiga Menu Utama
 
 | Menu | Kapan dipakai | Template | Yang dilakukan bot |
 |---|---|---|---|
 | **#DC_00 · Tanpa Perubahan** | Anomali apa pun yang sudah sesuai | `Template_TUNTAS_DC0.xlsx` (link_fasih_sm) | Catatan #DC_00 di nilai produksi (27.a/31.a/UB 23.a, alur v8) **atau** 13.g Kode KBLI → konfirmasi anomali → Kirim → Approve (klik "Kembali ke Review" lalu tombol ✓ Approve di toolbar kanan) |
 | **#DC_01 · Ganti KBLI** | KBLI salah dan harus diganti | `Template_TUNTAS_DC1_KBLI.xlsx` (link_fasih_sm, kbli_awal, kbli_tujuan) | Cari unit usaha dengan 13.g = kbli_awal → pilih radio kbli_tujuan → catatan #DC_01 di 13.g → konfirmasi anomali → Kirim → Approve |
+| **API · Ubah Variabel** | Mengubah isian variabel lain secara massal | `Template_TUNTAS_API_Variabel.xlsx` (link_fasih_sm, kolom variabel) | Ubah nilai variabel via API FASIH → auto backup → buka form & Kirim (batal bila ada GALAT) → Approve |
 
 - Link `/app/assignment-detail/<id>` langsung dibuka sebagai `/app/assignment/<ID Periode Survei>/<id>/edit` (ID periode diatur di popup).
 - Pengaman: dokumen **tidak dikirim** bila target catatan / unit usaha / pilihan KBLI tujuan tidak ditemukan.
@@ -149,6 +150,8 @@ Anomali2/
 ├── background/
 │   └── background.js        # Service Worker pengendali tab & queue
 ├── content/
-│   └── content.js           # Content Script pelaksana otomasi DOM di fasih-sm
+│   ├── content.js           # Content Script pelaksana otomasi DOM di fasih-sm
+│   └── fasih_api.js         # Library API FASIH untuk perubahan variabel langsung
+├── template/                # File template Excel (.xlsx)
 └── README.md                # Dokumentasi & panduan penggunaan
 ```
