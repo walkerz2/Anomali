@@ -81,7 +81,7 @@ Untuk setiap baris pada file Excel:
    - Klik area upload atau tarik file Excel (misal: `Nilai Tambah positif tapi flag 3 binjai test.xlsx`).
    - Ekstensi akan otomatis mendeteksi kolom `link_fasih_sm` dan menampilkan daftar antrian.
 4. **Atur Pengaturan (Opsional)**:
-   - **Email & Password SSO**: Default `Haerulhaeruddin003@gmail.com` & `Mitra123` (bisa diubah di popup).
+   - **Email & Password SSO**: Default `xxxxxx@gmail.com` & `XXXXXX` (bisa diubah di popup).
    - **Auto Login SSO Eksternal**: Centang untuk otomatis login saat sesi kedaluwarsa.
    - **Catatan Utama**: Default `#DC_00` (satu catatan saja, tanpa catatan tambahan).
    - **Jeda per Langkah**: Default `1.5` detik (dapat diperbesar menjadi 2.0 atau 2.5 jika koneksi server FASIH sedang lambat).
