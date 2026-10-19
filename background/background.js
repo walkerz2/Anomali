@@ -354,75 +354,30 @@ function broadcastToPopup(message) {
   });
 }
 
-// Fungsi utama: Memproses 1 item antrian
-async function processQueueItem(queue, index, prevTabIdToClose = null) {
+// Variabel pengunci runner antrian agar tidak berjalan ganda
+let isQueueRunning = false;
+
+// Fungsi pemroses 1 item antrian secara independen
+async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
   if (runnerState.status !== 'RUNNING') {
-    const stored = await chrome.storage.local.get(['runnerState']);
-    if (stored.runnerState && stored.runnerState.status === 'RUNNING') {
-      runnerState = { ...runnerState, ...stored.runnerState };
-    } else {
-      stopKeepAlive();
-      return;
-    }
-  }
-  startKeepAlive();
-
-  if (!queue || queue.length === 0) {
-    runnerState.status = 'IDLE';
-    stopKeepAlive();
-    await chrome.storage.local.set({ runnerState });
-    broadcastToPopup({ action: 'ALL_COMPLETED' });
-    return;
+    return { tabIdToClose: prevTabIdToClose };
   }
 
-  // Jika index melebihi panjang antrian, cari apakah masih ada item PENDING
-  if (index >= queue.length) {
-    const remainingPendingIdx = findNextPendingIndex(queue, 0);
-    if (remainingPendingIdx !== -1) {
-      processQueueItem(queue, remainingPendingIdx, prevTabIdToClose);
-      return;
-    }
-    if (prevTabIdToClose) chrome.tabs.remove(prevTabIdToClose).catch(() => {});
-    runnerState.status = 'IDLE';
-    stopKeepAlive();
-    await chrome.storage.local.set({ runnerState });
-    broadcastToPopup({ action: 'ALL_COMPLETED' });
-    return;
+  if (!queue || !queue[index]) {
+    return { tabIdToClose: prevTabIdToClose };
   }
 
   const item = queue[index];
-  runnerState.currentIndex = index;
-  await chrome.storage.local.set({ runnerState });
 
   // Lewati jika BUKAN PENDING (misal sudah SUCCESS, SKIPPED, atau FAILED)
   if (item.status !== 'PENDING') {
-    const nextPendingIdx = findNextPendingIndex(queue, index + 1);
-    if (nextPendingIdx !== -1) {
-      processQueueItem(queue, nextPendingIdx, prevTabIdToClose);
-    } else {
-      if (prevTabIdToClose) chrome.tabs.remove(prevTabIdToClose).catch(() => {});
-      runnerState.status = 'IDLE';
-      stopKeepAlive();
-      await chrome.storage.local.set({ runnerState });
-      broadcastToPopup({ action: 'ALL_COMPLETED' });
-    }
-    return;
+    return { tabIdToClose: prevTabIdToClose };
   }
 
   const rawUrl = item.link_fasih_sm || item.link;
   if (!rawUrl || !rawUrl.startsWith('http')) {
     await updateItemStatus(index, 'FAILED', 'Link URL tidak valid.');
-    const nextPendingIdx = findNextPendingIndex(queue, index + 1);
-    if (nextPendingIdx !== -1) {
-      processQueueItem(queue, nextPendingIdx, prevTabIdToClose);
-    } else {
-      if (prevTabIdToClose) chrome.tabs.remove(prevTabIdToClose).catch(() => {});
-      runnerState.status = 'IDLE';
-      stopKeepAlive();
-      await chrome.storage.local.set({ runnerState });
-      broadcastToPopup({ action: 'ALL_COMPLETED' });
-    }
-    return;
+    return { tabIdToClose: prevTabIdToClose };
   }
 
   // Tambahkan /edit langsung di belakang link_fasih_sm untuk antrian
@@ -435,10 +390,14 @@ async function processQueueItem(queue, index, prevTabIdToClose = null) {
   try {
     // Buat tab baru langsung dengan URL /edit
     tab = await chrome.tabs.create({ url: targetUrl, active: true });
+
+    // KARENA tab baru sudah berhasil dibuat di window yang sama,
+    // menutup tab sebelumnya (prevTabIdToClose) DIJAMIN AMAN dan tidak akan pernah menutup window browser!
     if (prevTabIdToClose && prevTabIdToClose !== tab.id) {
       chrome.tabs.remove(prevTabIdToClose).catch(() => {});
       prevTabIdToClose = null;
     }
+
     runnerState.activeTabId = tab.id;
     runnerState.activeTargetUrl = targetUrl;
     await chrome.storage.local.set({ runnerState });
@@ -468,7 +427,7 @@ async function processQueueItem(queue, index, prevTabIdToClose = null) {
       } else {
         await updateItemStatus(index, 'PENDING');
       }
-      return;
+      return { tabIdToClose: tab.id };
     }
 
     // Jika setelah 1x reload halaman tetap tidak selesai dimuat (>70 detik)
@@ -478,22 +437,8 @@ async function processQueueItem(queue, index, prevTabIdToClose = null) {
       runnerState.consecutiveFailures = (runnerState.consecutiveFailures || 0) + 1;
       checkCircuitBreaker();
       shouldCloseCurrentTab = Boolean(runnerState.options.closeTabOnComplete);
-      await randomSleep(1500, 2500);
-      if (runnerState.status === 'RUNNING') {
-        const updatedData = await chrome.storage.local.get(['fasihQueue']);
-        const currentQueue = updatedData.fasihQueue || queue;
-        const nextIdx = findNextPendingIndex(currentQueue, index + 1);
-        if (nextIdx !== -1) {
-          processQueueItem(currentQueue, nextIdx, shouldCloseCurrentTab && tab ? tab.id : null);
-        } else {
-          if (shouldCloseCurrentTab && tab && tab.id) chrome.tabs.remove(tab.id).catch(() => {});
-          runnerState.status = 'IDLE';
-          stopKeepAlive();
-          await chrome.storage.local.set({ runnerState });
-          broadcastToPopup({ action: 'ALL_COMPLETED' });
-        }
-      }
-      return;
+      await randomSleep(1000, 1500);
+      return { tabIdToClose: shouldCloseCurrentTab && tab ? tab.id : null };
     }
 
     await updateItemStatus(index, 'PROCESSING');
@@ -537,11 +482,11 @@ async function processQueueItem(queue, index, prevTabIdToClose = null) {
     // Periksa status runner setelah eksekusi tab selesai atau dibatalkan
     if (runnerState.status === 'STOPPED') {
       await updateItemStatus(index, 'PENDING', 'Diberhentikan (Stop)');
-      return;
+      return { tabIdToClose: tab.id };
     }
     if (runnerState.status === 'PAUSED') {
       await updateItemStatus(index, 'PAUSED', 'Dijeda (Pause)');
-      return;
+      return { tabIdToClose: tab.id };
     }
 
     // Tangani pengalihan bertahap (misal: /edit -> halaman login Selamat Datang Kembali -> SSO eksternal -> halaman /app -> halaman /edit)
@@ -619,11 +564,11 @@ async function processQueueItem(queue, index, prevTabIdToClose = null) {
 
       if (runnerState.status === 'STOPPED') {
         await updateItemStatus(index, 'PENDING', 'Diberhentikan (Stop)');
-        return;
+        return { tabIdToClose: tab.id };
       }
       if (runnerState.status === 'PAUSED') {
         await updateItemStatus(index, 'PAUSED', 'Dijeda (Pause)');
-        return;
+        return { tabIdToClose: tab.id };
       }
 
       try {
@@ -650,11 +595,11 @@ async function processQueueItem(queue, index, prevTabIdToClose = null) {
 
       if (runnerState.status === 'STOPPED') {
         await updateItemStatus(index, 'PENDING', 'Diberhentikan (Stop)');
-        return;
+        return { tabIdToClose: tab.id };
       }
       if (runnerState.status === 'PAUSED') {
         await updateItemStatus(index, 'PAUSED', 'Dijeda (Pause)');
-        return;
+        return { tabIdToClose: tab.id };
       }
     }
 
@@ -666,7 +611,7 @@ async function processQueueItem(queue, index, prevTabIdToClose = null) {
         runnerState.consecutiveFailures = 0;
       } else if (res.stoppedByUser) {
         await updateItemStatus(index, 'PENDING', 'Diberhentikan oleh pengguna');
-        return;
+        return { tabIdToClose: tab.id };
       } else if (res.success === false || res.hasGalat) {
         const errReason = res.error || 'Gagal validasi / terdapat galat formulir';
         await updateItemStatus(index, 'FAILED', errReason);
@@ -748,7 +693,7 @@ async function processQueueItem(queue, index, prevTabIdToClose = null) {
       }
     } else if (response && response.status === 'ABORTED') {
       await updateItemStatus(index, 'PENDING', 'Diberhentikan oleh pengguna');
-      return;
+      return { tabIdToClose: tab.id };
     } else if (response && response.status === 'DISCONNECTED') {
       let where = '';
       try { where = (await chrome.tabs.get(tab.id)).url || ''; } catch (e) {}
@@ -774,7 +719,7 @@ async function processQueueItem(queue, index, prevTabIdToClose = null) {
   } catch (err) {
     if (runnerState.status === 'STOPPED') {
       await updateItemStatus(index, 'PENDING', 'Diberhentikan (Stop)');
-      return;
+      return { tabIdToClose: tab && tab.id ? tab.id : null };
     }
     console.error('Error processing item', index, err);
     const errMsg = err.message || String(err);
@@ -797,56 +742,120 @@ async function processQueueItem(queue, index, prevTabIdToClose = null) {
     (response.result.alreadyHasRemark || response.result.noApproveButton || response.result.skipped || response.result.alreadySubmitted)
   );
 
-  // Periksa apakah masih ada lebih dari 1 tab di window agar menutup tab tidak ikut menutup window browser
-  let canCloseBeforeNextTab = false;
-  if (shouldCloseCurrentTab && tab && tab.id) {
+  const shouldCloseByOption = runnerState.options.closeTabOnComplete !== false;
+  let tabIdToClose = null;
+
+  if (shouldCloseCurrentTab && shouldCloseByOption && tab && tab.id) {
+    let canCloseNow = false;
     try {
       const winTabs = await chrome.tabs.query({ windowId: tab.windowId });
-      canCloseBeforeNextTab = winTabs && winTabs.length > 1;
+      canCloseNow = winTabs && winTabs.length > 1;
     } catch (e) {
-      canCloseBeforeNextTab = true;
+      canCloseNow = false;
     }
-  }
 
-  if (isFastSkip) {
-    if (shouldCloseCurrentTab && canCloseBeforeNextTab && tab && tab.id) {
-      await chrome.tabs.remove(tab.id).catch(() => {});
-      shouldCloseCurrentTab = false;
-    }
-    await sleep(200);
-  } else {
-    if (shouldCloseCurrentTab && canCloseBeforeNextTab && tab && tab.id) {
-      await randomSleep(600, 1000);
-      await chrome.tabs.remove(tab.id).catch(() => {});
-      shouldCloseCurrentTab = false;
-    }
-    await randomSleep(800, 1500);
-  }
-
-  // Pastikan status RUNNING tetap sinkron dengan storage sebelum lanjut ke baris berikutnya
-  if (runnerState.status !== 'RUNNING' && runnerState.status !== 'PAUSED' && runnerState.status !== 'STOPPED') {
-    const stored = await chrome.storage.local.get(['runnerState']);
-    if (stored.runnerState && stored.runnerState.status === 'RUNNING') {
-      runnerState.status = 'RUNNING';
-    }
-  }
-
-  // Lanjut ke antrian berikutnya jika masih RUNNING
-  if (runnerState.status === 'RUNNING') {
-    const updatedData = await chrome.storage.local.get(['fasihQueue']);
-    const currentQueue = updatedData.fasihQueue || queue;
-    const nextIdx = findNextPendingIndex(currentQueue, index + 1);
-    if (nextIdx !== -1) {
-      processQueueItem(currentQueue, nextIdx, tab && tab.id ? tab.id : null);
+    if (canCloseNow) {
+      if (isFastSkip) {
+        await chrome.tabs.remove(tab.id).catch(() => {});
+        await sleep(250);
+      } else {
+        await randomSleep(600, 1000);
+        await chrome.tabs.remove(tab.id).catch(() => {});
+        await randomSleep(600, 1000);
+      }
+      tabIdToClose = null;
     } else {
-      if (tab && tab.id) {
-        chrome.tabs.remove(tab.id).catch(() => {});
+      // Window hanya punya 1 tab (tab ini). Jika langsung ditutup sekarang, window Chrome akan ikut tertutup.
+      // Serahkan tab.id ini ke item berikutnya agar ditutup saat tab baru berikutnya DIBUKA terlebih dahulu!
+      if (isFastSkip) {
+        await sleep(250);
+      } else {
+        await randomSleep(600, 1000);
+      }
+      tabIdToClose = tab.id;
+    }
+  }
+
+  return { tabIdToClose };
+}
+
+// Runner utama berbasis perulangan sekuensial (while-loop) yang stabil, anti-stuck & anti-terminasi SW
+async function startQueueRunner(fromIndex = null) {
+  if (isQueueRunning) {
+    console.log('[FASIH BG] Queue runner sedang berjalan, panggilan diabaikan.');
+    return;
+  }
+  isQueueRunning = true;
+  startKeepAlive();
+
+  try {
+    let prevTabIdToClose = runnerState.activeTabId || null;
+    let targetIndex = fromIndex;
+
+    while (runnerState.status === 'RUNNING') {
+      const data = await chrome.storage.local.get(['fasihQueue', 'runnerState']);
+      if (data.runnerState && data.runnerState.status !== 'RUNNING') {
+        runnerState.status = data.runnerState.status;
+        break;
+      }
+      const queue = data.fasihQueue || [];
+      if (!queue.length) break;
+
+      const searchFrom = targetIndex !== null ? targetIndex : runnerState.currentIndex;
+      targetIndex = null; // hanya gunakan fromIndex pada iterasi pertama
+
+      const nextIdx = findNextPendingIndex(queue, searchFrom);
+      if (nextIdx === -1) {
+        // Semua item PENDING dalam antrian telah selesai
+        break;
+      }
+
+      runnerState.currentIndex = nextIdx;
+      await chrome.storage.local.set({ runnerState });
+
+      // Proses 1 baris antrian secara sekuensial dan tunggu sampai selesai
+      const res = await processQueueItemSingle(queue, nextIdx, prevTabIdToClose);
+      prevTabIdToClose = (res && res.tabIdToClose) || null;
+
+      // Sinkronkan status runner jika diubah selama proses berlangsung
+      const refreshedState = await chrome.storage.local.get(['runnerState']);
+      if (refreshedState.runnerState?.status) {
+        runnerState.status = refreshedState.runnerState.status;
+      }
+      if (runnerState.status !== 'RUNNING') break;
+    }
+
+    // Jika antrian selesai sampai akhir (masih RUNNING dan tidak ada PENDING lagi)
+    if (runnerState.status === 'RUNNING') {
+      const shouldCloseByOption = runnerState.options.closeTabOnComplete !== false;
+      if (shouldCloseByOption && prevTabIdToClose) {
+        try {
+          const tabObj = await chrome.tabs.get(prevTabIdToClose);
+          const winTabs = await chrome.tabs.query({ windowId: tabObj.windowId });
+          if (winTabs && winTabs.length > 1) {
+            await chrome.tabs.remove(prevTabIdToClose).catch(() => {});
+          } else {
+            await chrome.tabs.update(prevTabIdToClose, { url: 'https://fasih-sm.bps.go.id/app' }).catch(() => {});
+          }
+        } catch (e) {}
       }
       runnerState.status = 'IDLE';
+      runnerState.activeTabId = null;
       stopKeepAlive();
       await chrome.storage.local.set({ runnerState });
       broadcastToPopup({ action: 'ALL_COMPLETED' });
     }
+  } catch (err) {
+    console.error('[FASIH BG] Error pada antrian loop:', err);
+  } finally {
+    isQueueRunning = false;
+  }
+}
+
+// Wrapper backward-compatible
+function processQueueItem(queue, index, prevTabIdToClose = null) {
+  if (runnerState.status === 'RUNNING') {
+    startQueueRunner(index);
   }
 }
 
@@ -1144,6 +1153,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           const tab = await chrome.tabs.get(runnerState.activeTabId);
           if (tab && !tab.discarded) {
             chrome.tabs.sendMessage(runnerState.activeTabId, { action: 'RESUME_WORKFLOW' }).catch(() => {});
+            startQueueRunner();
             sendResponse({ success: true, resumedTab: runnerState.activeTabId });
             return;
           }

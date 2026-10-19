@@ -771,12 +771,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const st = data.runnerState && data.runnerState.status;
     setRunnerStatus(st || 'IDLE');
-    if (st === 'RUNNING') showRunningButtons();
-    else if (st === 'PAUSED') {
+    if (st === 'RUNNING') {
+      showRunningButtons();
+      const activeIdx = (data.runnerState && data.runnerState.currentIndex) || 0;
+      const currentItem = queue[activeIdx];
+      const usahaName = currentItem ? (currentItem.nama_usaha || `Baris #${activeIdx + 1}`) : '';
+      liveStatusText.textContent = usahaName ? `Sedang memproses: ${usahaName}` : 'Sedang memproses antrian...';
+    } else if (st === 'PAUSED') {
       showRunningButtons();
       btnPause.classList.add('hidden');
       btnResume.classList.remove('hidden');
-    } else showIdleButtons();
+      liveStatusText.textContent = 'Dijeda.';
+    } else {
+      showIdleButtons();
+    }
   }
 
   await loadSavedState();
@@ -788,6 +796,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       btnExportExcel.disabled = !queue.length;
       renderQueueTable();
       updateProgressUI();
+      if (runnerStatus === 'RUNNING' && request.index !== undefined && queue[request.index]) {
+        const item = queue[request.index];
+        if (item.status === 'SKIPPED') {
+          liveStatusText.textContent = `Dilewati: ${item.nama_usaha || `Baris #${request.index + 1}`}`;
+        } else if (item.status === 'SUCCESS') {
+          liveStatusText.textContent = `Selesai: ${item.nama_usaha || `Baris #${request.index + 1}`}`;
+        }
+      }
     }
     if (request.action === 'UPDATE_STEP') {
       liveStatusText.textContent = `${request.step}: ${request.details}`;
