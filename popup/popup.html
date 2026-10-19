@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TUNTAS SE2026</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="logo-box">
+          <img src="../icons/icon48.png" alt="Logo" class="app-logo-img">
+        </div>
+        <div>
+          <h1 class="header-title">TUNTAS <span class="title-accent">SE2026</span></h1>
+          <p class="header-subtitle">Tracking dan Tindak Lanjut Anomali Sensus</p>
+        </div>
+      </div>
+      <div id="statusBadge" class="badge badge-idle">Siap</div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Pilih Menu -->
+      <nav class="mode-tabs" role="tablist">
+        <button class="mode-tab active" data-mode="DC0" role="tab" type="button">
+          <span class="mode-code tag-dc0">#DC_00</span>
+          <span class="mode-name">Tanpa Perubahan</span>
+        </button>
+        <button class="mode-tab" data-mode="DC1" role="tab" type="button">
+          <span class="mode-code tag-dc1">#DC_01</span>
+          <span class="mode-name">Ganti KBLI</span>
+        </button>
+      </nav>
+
+      <p class="mode-desc" id="modeDesc"></p>
+
+      <!-- Upload Excel -->
+      <section class="card upload-card">
+        <label for="excelInput" class="upload-area" id="dropArea">
+          <svg class="upload-icon" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="12" y1="18" x2="12" y2="12"></line>
+            <line x1="9" y1="15" x2="15" y2="15"></line>
+          </svg>
+          <div class="upload-text">
+            <span class="upload-title">Klik atau Tarik File Excel ke Sini</span>
+            <span class="upload-desc" id="uploadDesc">Kolom wajib: <code>link_fasih_sm</code></span>
+          </div>
+          <input type="file" id="excelInput" accept=".xlsx, .xls" style="display: none;">
+        </label>
+        <div id="fileInfo" class="file-info hidden">
+          <span class="file-mode" id="fileMode">#DC_00</span>
+          <span class="file-name" id="fileName">-</span>
+          <span class="file-count" id="fileRowCount">0 baris</span>
+          <button id="btnClearFile" class="btn-clear" title="Hapus file">&times;</button>
+        </div>
+        <button id="btnDownloadTemplate" class="btn-template" type="button">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span id="templateLabel">Unduh Template #DC_0</span>
+        </button>
+      </section>
+
+      <!-- Pengaturan -->
+      <section class="card config-card">
+        <!-- Pengaturan khusus #DC_0 -->
+        <div class="mode-panel" data-panel="DC0">
+          <div class="config-grid">
+            <div class="form-group">
+              <label for="commentInput">Catatan:</label>
+              <input type="text" id="commentInput" value="#DC_00" placeholder="#DC_00">
+            </div>
+            <div class="form-group">
+              <label for="dc0TargetSelect">Ditaruh di variabel:</label>
+              <select id="dc0TargetSelect">
+                <option value="nilai">Nilai produksi (27.a / 31.a / UB 23.a)</option>
+                <option value="kbli">Kode KBLI (13.g)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <!-- Pengaturan khusus #DC_1 -->
+        <div class="mode-panel hidden" data-panel="DC1">
+          <div class="config-grid">
+            <div class="form-group">
+              <label for="catatanDigantiInput">Catatan setelah KBLI diganti:</label>
+              <input type="text" id="catatanDigantiInput" value="#DC_01" placeholder="#DC_01">
+            </div>
+            <div class="form-group">
+              <label>Ditaruh di variabel:</label>
+              <div class="static-field">Kode KBLI (13.g)</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="config-grid">
+          <div class="form-group">
+            <label for="delayInput">Jeda per Langkah (detik):</label>
+            <input type="number" id="delayInput" value="1.5" min="0.5" max="10" step="0.5">
+          </div>
+          <div class="form-group">
+            <label for="periodeInput" title="Dipakai untuk membuka link /app/assignment-detail/... langsung ke mode edit">ID Periode Survei:</label>
+            <input type="text" id="periodeInput" value="fd68e454-ba45-4b85-8205-f3bf777ded24" spellcheck="false">
+          </div>
+        </div>
+
+        <!-- Pengaturan Rentang Baris (Pembagian Per PC) -->
+        <div class="config-grid">
+          <div class="form-group">
+            <label for="rowStartInput" title="Nomor urut baris data pertama yang akan diproses di PC ini (kosongkan = dari baris 1)">Mulai dari Baris:</label>
+            <input type="number" id="rowStartInput" min="1" step="1" placeholder="1 (Awal)">
+          </div>
+          <div class="form-group">
+            <label for="rowEndInput" title="Nomor urut baris data terakhir yang akan diproses di PC ini (kosongkan = sampai baris terakhir)">Sampai Baris:</label>
+            <input type="number" id="rowEndInput" min="1" step="1" placeholder="Semua (Akhir)">
+          </div>
+        </div>
+
+        <!-- Pengaturan Kredensial SSO Eksternal -->
+        <div class="config-grid">
+          <div class="form-group">
+            <label for="ssoEmailInput">Email SSO Eksternal:</label>
+            <input type="email" id="ssoEmailInput" value="Haerulhaeruddin003@gmail.com" placeholder="Email SSO" spellcheck="false">
+          </div>
+          <div class="form-group">
+            <label for="ssoPasswordInput">Password SSO:</label>
+            <input type="password" id="ssoPasswordInput" value="Mitra123" placeholder="Password SSO">
+          </div>
+        </div>
+
+        <!-- PengaturanIdentitas PC & Webhook Notifikasi Error -->
+        <div class="config-grid config-grid-webhook">
+          <div class="form-group">
+            <label for="pcNameInput" title="Identitas PC ini agar saat terjadi error di grup/webhook diketahui berasal dari PC berapa">Nama / No. PC:</label>
+            <input type="text" id="pcNameInput" value="PC 1" placeholder="Contoh: PC 1">
+          </div>
+          <div class="form-group">
+            <label for="webhookUrlInput" title="URL Webhook n8n untuk menerima notifikasi ketika terjadi error / gagal remark / gagal koneksi">URL Webhook Notifikasi Error:</label>
+            <div class="webhook-input-row">
+              <input type="url" id="webhookUrlInput" value="https://n8n7309.online/webhook/notif-anomali" placeholder="https://n8n7309.online/webhook/notif-anomali" spellcheck="false">
+              <button id="btnTestWebhook" class="btn-ghost btn-test-webhook" type="button" title="Kirim pesan tes ke URL Webhook">Tes</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="checkbox-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="checkEnableWebhook" checked>
+            <span>Kirim notifikasi ke Webhook saat terjadi error / gagal remark / koneksi</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="checkAutoSsoLogin" checked>
+            <span>Auto Login SSO Eksternal jika diminta / sesi habis</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="checkRequireConfirm">
+            <span>Tampilkan konfirmasi sebelum kirim (untuk cek kesesuaian)</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="checkAutoApprove" checked>
+            <span>Approve setelah berhasil dikirim</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="checkCloseTab" checked>
+            <span>Tutup tab setelah selesai</span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Control Buttons -->
+      <section class="control-actions">
+        <button id="btnStart" class="btn btn-primary" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          Mulai Otomasi
+        </button>
+        <button id="btnPause" class="btn btn-warning hidden">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="4" width="4" height="16"></rect>
+            <rect x="14" y="4" width="4" height="16"></rect>
+          </svg>
+          Jeda
+        </button>
+        <button id="btnResume" class="btn btn-primary hidden">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          Lanjut
+        </button>
+        <button id="btnStop" class="btn btn-danger hidden">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="5" y="5" width="14" height="14" rx="2"></rect>
+          </svg>
+          Stop
+        </button>
+        <button id="btnDiagnose" class="btn btn-ghost" title="Periksa struktur halaman FASIH di tab aktif (tidak mengubah apa pun)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          Diagnosa
+        </button>
+        <button id="btnTestActiveTab" class="btn btn-secondary" title="Jalankan otomasi hanya pada tab FASIH yang sedang aktif">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"></polygon>
+          </svg>
+          Test Tab Aktif
+        </button>
+      </section>
+
+      <!-- Hasil Diagnosa -->
+      <section class="card diag-card hidden" id="diagCard">
+        <div class="list-header">
+          <span class="list-title">Hasil Diagnosa Halaman</span>
+          <div class="list-header-actions">
+            <button id="btnCopyDiag" class="btn-template btn-inline" type="button">Salin</button>
+            <button id="btnCloseDiag" class="btn-clear" type="button" title="Tutup">&times;</button>
+          </div>
+        </div>
+        <div id="diagSummary" class="diag-summary"></div>
+        <pre id="diagOutput" class="diag-output"></pre>
+      </section>
+
+      <!-- Progress & Live Activity -->
+      <section class="card progress-card">
+        <div class="progress-header">
+          <span class="progress-title">Kemajuan Proses:</span>
+          <span id="progressStats" class="progress-stats">0 / 0</span>
+        </div>
+        <div class="progress-bar-container">
+          <div id="progressBar" class="progress-bar" style="width: 0%;"></div>
+        </div>
+
+        <div class="live-status-box">
+          <div class="live-dot"></div>
+          <div id="liveStatusText" class="live-text">Menunggu proses dimulai...</div>
+        </div>
+      </section>
+
+      <!-- Queue Table / List Preview -->
+      <section class="card list-card">
+        <div class="list-header">
+          <div class="list-header-left">
+            <span class="list-title">Daftar Antrian URL</span>
+            <span id="queueSummary" class="list-badge">0 item</span>
+          </div>
+          <div class="list-header-actions">
+            <button id="btnRetryFailed" class="btn-retry-failed hidden" title="Ulangi kembali hanya baris yang berstatus gagal/timeout">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 4v6h6"></path>
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+              </svg>
+              <span>Ulangi Gagal (<span id="failedCountBadge">0</span>)</span>
+            </button>
+            <button id="btnExportExcel" class="btn-export" title="Export log hasil ke file Excel (.xlsx)" disabled>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              Export Log Excel
+            </button>
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th width="40">No</th>
+                <th>Nama Usaha / ID</th>
+                <th width="90">Status</th>
+              </tr>
+            </thead>
+            <tbody id="queueTableBody">
+              <tr>
+                <td colspan="3" class="empty-state">Belum ada file Excel diimpor</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <span>TIM BPS Provinsi Sulawesi Selatan</span>
+    </footer>
+  </div>
+
+  <!-- Scripts -->
+  <script src="../lib/xlsx.full.min.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
