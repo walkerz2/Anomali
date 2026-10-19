@@ -773,10 +773,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     setRunnerStatus(st || 'IDLE');
     if (st === 'RUNNING') {
       showRunningButtons();
-      const activeIdx = (data.runnerState && data.runnerState.currentIndex) || 0;
-      const currentItem = queue[activeIdx];
+      let activeIdx = (data.runnerState && data.runnerState.currentIndex) || 0;
+      let currentItem = queue[activeIdx];
+      if (currentItem && (currentItem.status === 'SKIPPED' || currentItem.status === 'SUCCESS' || currentItem.status === 'FAILED')) {
+        const nextActiveIdx = queue.findIndex((it, idx) => idx > activeIdx && (it.status === 'PROCESSING' || it.status === 'OPENING_TAB' || it.status === 'PENDING'));
+        if (nextActiveIdx !== -1) {
+          activeIdx = nextActiveIdx;
+          currentItem = queue[activeIdx];
+        }
+      }
       const usahaName = currentItem ? (currentItem.nama_usaha || `Baris #${activeIdx + 1}`) : '';
       liveStatusText.textContent = usahaName ? `Sedang memproses: ${usahaName}` : 'Sedang memproses antrian...';
+      // Sinkronkan & bangunkan runner background jika sempat tertahan di antara baris
+      chrome.runtime.sendMessage({ action: 'GET_RUNNER_STATE' }, (res) => {
+        if (chrome.runtime.lastError || !res) return;
+        if (res.queue && res.queue.length) {
+          queue = res.queue;
+          renderQueueTable();
+          updateProgressUI();
+        }
+        if (res.runnerState && res.runnerState.status !== 'RUNNING') {
+          setRunnerStatus(res.runnerState.status || 'IDLE');
+          if (res.runnerState.status === 'IDLE') showIdleButtons();
+        }
+      });
     } else if (st === 'PAUSED') {
       showRunningButtons();
       btnPause.classList.add('hidden');

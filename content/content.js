@@ -2984,8 +2984,9 @@
     if (alreadyHasComment) {
       notifyStep('STEP_5_ALREADY_EXISTS', `[${indexStr}] Remark ${foundCode} sudah ada pada ${targetCode}.`, 'warning');
 
-      await closeCommentModal(textarea, modalDialog);
-      await ensureCommentModalClosed();
+      if (closeModalOnExisting) {
+        await closeCommentModal(textarea, modalDialog);
+      }
 
       return { ok: true, alreadyExists: true, foundCode };
     }
@@ -4269,7 +4270,7 @@
           exactCodeOnly: tq.exactCodeOnly === true,
           stepDelay,
           indexStr: qIndexStr,
-          closeModalOnExisting: true
+          closeModalOnExisting: Boolean(options.isActiveTabTest || options.closeTabOnComplete === false)
         });
 
         if (!commentRes) {
@@ -4286,7 +4287,9 @@
           lastFoundExistingCode = commentRes.foundCode;
           lastFoundExistingReason = `Remark ${commentRes.foundCode} sudah ada pada ${tq.code} (${usahaName})`;
           notifyStep('STEP_5_ALREADY_EXISTS', `${lastFoundExistingReason}. Langsung tutup tab & lanjut baris berikutnya...`, 'warning');
-          await ensureCommentModalClosed();
+          if (options.isActiveTabTest || options.closeTabOnComplete === false) {
+            await ensureCommentModalClosed();
+          }
           return {
             success: true,
             skipped: true,
