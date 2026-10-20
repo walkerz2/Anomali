@@ -4,8 +4,8 @@
 
 | Menu | Kapan dipakai | Template | Yang dilakukan bot |
 |---|---|---|---|
-| **#DC_00 · Tanpa Perubahan** | Anomali apa pun yang sudah sesuai | `Template_TUNTAS_DC0.xlsx` (link_fasih_sm) | Catatan #DC_00 di nilai produksi (27.a/31.a/UB 23.a, alur v8) **atau** 13.g Kode KBLI → konfirmasi anomali → Kirim → Approve (klik "Kembali ke Review" lalu tombol ✓ Approve di toolbar kanan) |
-| **#DC_01 · Ganti KBLI** | KBLI salah dan harus diganti | `Template_TUNTAS_DC1_KBLI.xlsx` (link_fasih_sm, kbli_awal, kbli_tujuan) | Cari unit usaha dengan 13.g = kbli_awal → pilih radio kbli_tujuan → catatan #DC_01 di 13.g → konfirmasi anomali → Kirim → Approve |
+| **#DC_00 · Tanpa Perubahan** | Anomali apa pun yang sudah sesuai | `Template_TUNTAS_DC0.xlsx` (link_fasih_sm) | Catatan #DC_00 di nilai produksi (27.a/31.a/UB 23.a), khusus **27.a**, **atau** 13.g Kode KBLI → konfirmasi anomali → Kirim → Approve (klik "Kembali ke Review" lalu tombol ✓ Approve di toolbar kanan) |
+| **#DC_01 · Ganti KBLI** | KBLI salah dan harus diganti | `Template_TUNTAS_DC1_KBLI.xlsx` (link_fasih_sm, kbli_awal, kbli_tujuan) | Cari unit usaha dengan 13.g = kbli_awal → pilih radio kbli_tujuan → catatan #DC_01 di 13.g (atau di 27.a / Nilai Produksi) → konfirmasi anomali → Kirim → Approve |
 | **API · Ubah Variabel** | Mengubah isian variabel lain secara massal | `Template_TUNTAS_API_Variabel.xlsx` (link_fasih_sm, kolom variabel) | Ubah nilai variabel via API FASIH → auto backup → buka form & Kirim (batal bila ada GALAT) → Approve |
 
 - Link `/app/assignment-detail/<id>` langsung dibuka sebagai `/app/assignment/<ID Periode Survei>/<id>/edit` (ID periode diatur di popup).
@@ -118,6 +118,7 @@ Untuk setiap baris pada file Excel:
      - *Hentikan di Sini (Periksa Manual)*
    - **Kirim survei & konfirmasi modal di akhir**: Centang untuk otomatis submit survei.
    - **Tutup tab setelah survei berhasil dikirim**: Centang untuk menutup tab secara otomatis (berlaku untuk dokumen yang selesai maupun yang dilewati/skip).
+    - **Auto Revoke jika Dokumen Sudah di-Approve**: Jika assignment sudah berstatus Approved sehingga tombol Kirim tidak tersedia, bot otomatis mengklik tombol Revoke (ikon panah putar balik di toolbar pojok kanan bawah), mengonfirmasi dialog Revoke, menunggu reload formulir selesai, mengisi catatan (misal 27.a atau 13.g), submit formulir, dan melakukan Approve kembali.
     - **Auto Approve**: Centang untuk otomatis membuka halaman review dan mengklik tombol Approve setelah survei berhasil disubmit.
     - **Notifikasi Webhook (n8n / Telegram)**: Mengirim notifikasi otomatis saat terjadi error atau circuit breaker aktif ke endpoint Webhook (lengkap dengan identitas PC, nomor baris Excel, nama usaha, ID Assignment, dan penyebab error).
     - **Circuit Breaker**: Pengaman otomatis yang akan menjeda antrian jika terjadi 3 kegagalan beruntun akibat server FASIH down atau timeout jaringan.

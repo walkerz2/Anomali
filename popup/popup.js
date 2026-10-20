@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const commentInput = $('commentInput');
   const dc0TargetSelect = $('dc0TargetSelect');
+  const dc1TargetSelect = $('dc1TargetSelect');
   const catatanDigantiInput = $('catatanDigantiInput');
   const delayInput = $('delayInput');
   const periodeInput = $('periodeInput');
@@ -38,6 +39,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnTestWebhook = $('btnTestWebhook');
   const checkEnableWebhook = $('checkEnableWebhook');
   const checkAutoSsoLogin = $('checkAutoSsoLogin');
+  const checkAutoRevoke = $('checkAutoRevoke');
   const checkRequireConfirm = $('checkRequireConfirm');
   const checkAutoApprove = $('checkAutoApprove');
   const checkCloseTab = $('checkCloseTab');
@@ -400,7 +402,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     return {
       mode: queueMode || activeMode,
       commentText: commentInput.value.trim() || '#DC_00',
-      dc0Target: dc0TargetSelect.value || 'nilai',
+      dc0Target: (dc0TargetSelect && dc0TargetSelect.value) || 'nilai',
+      dc1Target: (dc1TargetSelect && dc1TargetSelect.value) || 'kbli',
       catatanKbliDiganti: catatanDigantiInput.value.trim() || '#DC_01',
       periodeId: periodeInput.value.trim(),
       stepDelay: (parseFloat(delayInput.value) || 1.5) * 1000,
@@ -410,6 +413,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       enableWebhook: checkEnableWebhook ? checkEnableWebhook.checked : true,
       webhookUrl: (webhookUrlInput && webhookUrlInput.value.trim()) || DEFAULT_WEBHOOK_URL,
       autoSsoLogin: checkAutoSsoLogin ? checkAutoSsoLogin.checked : true,
+      autoRevoke: checkAutoRevoke ? checkAutoRevoke.checked : true,
       ssoEmail: (ssoEmailInput && ssoEmailInput.value.trim()) || 'Haerulhaeruddin003@gmail.com',
       ssoPassword: (ssoPasswordInput && ssoPasswordInput.value) || 'Mitra123',
       requireManualConfirm: checkRequireConfirm.checked,
@@ -423,8 +427,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   function saveSettings() {
     chrome.storage.local.set({ runnerOptions: getOptions(), activeMode }).catch(() => {});
   }
-  [commentInput, dc0TargetSelect, catatanDigantiInput, delayInput, periodeInput,
+  [commentInput, dc0TargetSelect, dc1TargetSelect, catatanDigantiInput, delayInput, periodeInput,
     ssoEmailInput, ssoPasswordInput, pcNameInput, webhookUrlInput, checkEnableWebhook, checkAutoSsoLogin,
+    checkAutoRevoke,
     checkRequireConfirm, checkAutoApprove, checkCloseTab, checkApiDryRun]
     .filter(Boolean)
     .forEach(el => el.addEventListener('change', saveSettings));
@@ -992,7 +997,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const o = data.runnerOptions || {};
     // Nilai tersimpan versi sebelumnya (#DC_0 / #DC_1) tidak dipulihkan; default resmi #DC_00 / #DC_01
     if (o.commentText && o.commentText !== '#DC_0') commentInput.value = o.commentText;
-    if (o.dc0Target) dc0TargetSelect.value = o.dc0Target;
+    if (o.dc0Target && dc0TargetSelect) dc0TargetSelect.value = o.dc0Target;
+    if (o.dc1Target && dc1TargetSelect) dc1TargetSelect.value = o.dc1Target;
     if (o.catatanKbliDiganti && o.catatanKbliDiganti !== '#DC_1') catatanDigantiInput.value = o.catatanKbliDiganti;
     if (o.periodeId) periodeInput.value = o.periodeId;
     if (o.stepDelay) delayInput.value = o.stepDelay / 1000;
@@ -1004,6 +1010,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (webhookUrlInput) webhookUrlInput.value = o.webhookUrl || DEFAULT_WEBHOOK_URL;
     if (o.enableWebhook !== undefined && checkEnableWebhook) checkEnableWebhook.checked = o.enableWebhook;
     if (o.autoSsoLogin !== undefined && checkAutoSsoLogin) checkAutoSsoLogin.checked = o.autoSsoLogin;
+    if (o.autoRevoke !== undefined && checkAutoRevoke) checkAutoRevoke.checked = o.autoRevoke;
     if (o.requireManualConfirm !== undefined) checkRequireConfirm.checked = o.requireManualConfirm;
     if (o.autoApprove !== undefined) checkAutoApprove.checked = o.autoApprove;
     if (o.closeTabOnComplete !== undefined) checkCloseTab.checked = o.closeTabOnComplete;

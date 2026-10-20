@@ -86,6 +86,8 @@ let runnerState = {
     mode: 'DC0',
     commentText: '#DC_00',
     dc0Target: 'nilai',
+    dc1Target: 'kbli',
+    autoRevoke: true,
     catatanKbliDiganti: '#DC_01',
     periodeId: 'fd68e454-ba45-4b85-8205-f3bf777ded24',
     stepDelay: 1500,
@@ -641,7 +643,19 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
       ? targetUrl.split('?')[0].split('#')[0].replace(/\/+$/, '').replace(/\/edit$/i, '')
       : '';
 
-    const isPostSubmitStep = (stepName) => [
+    const isRevokeStep = (stepName) => [
+    'REVOKE_START',
+    'REVOKE_CLICK',
+    'REVOKE_CONFIRM',
+    'REVOKE_CONFIRM_CLICK',
+    'REVOKE_SUCCESS',
+    'AUTO_REVOKE',
+    'AUTO_REVOKE_DONE',
+    'STEP_6_REVOKE_DIRECT',
+    'STEP_6_REVOKE_OK'
+  ].includes(stepName);
+
+  const isPostSubmitStep = (stepName) => [
       'STEP_6_TOP_SUBMIT_CLICK',
       'STEP_6_SECONDARY_KIRIM',
       'STEP_7_CONFIRM',
@@ -694,6 +708,45 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
           }
         };
         break;
+      }
+
+      // Jika terputus karena halaman otomatis reload SETELAH Revoke dikonfirmasi, tunggu reload selesai lalu lanjutkan workflow
+      if (isDisconnected && (isRevokeStep(runnerState.lastWorkflowStep) || runnerState.tabRevokedRecently)) {
+        console.log('[FASIH BG] Halaman reload terdeteksi setelah Revoke dikonfirmasi. Menunggu reload selesai...');
+        runnerState.tabRevokedRecently = false;
+        runnerState.lastWorkflowStep = '';
+        await updateItemStatus(index, 'PROCESSING', 'Revoke berhasil! Menunggu formulir selesai dimuat ulang...');
+        await sleep(1500);
+        await waitForTabComplete(tab.id, 35000);
+        await randomSleep(2000, 3000);
+
+        let curTabUrl = '';
+        try {
+          const tNow = await chrome.tabs.get(tab.id);
+          curTabUrl = (tNow && tNow.url) || '';
+        } catch (_) {}
+
+        if (targetUrl && !checkIsEditUrl(curTabUrl)) {
+          await chrome.tabs.update(tab.id, { url: targetUrl });
+          await waitForTabComplete(tab.id, 35000);
+          await randomSleep(1800, 2600);
+        }
+
+        response = await sendTabMessageWithRetry(tab.id, {
+          action: 'EXECUTE_FASIH_WORKFLOW',
+          options: {
+            ...runnerState.options,
+            targetUrl: targetUrl,
+            isActiveTabTest: false,
+            isPostRevoke: true,
+            mode: (queue[index] && queue[index].mode) || runnerState.options.mode,
+            kbliTask: (queue[index] && queue[index].kbliTask) || null,
+            targetUsaha: (queue[index] && queue[index].targetUsaha) || '',
+            apiFinalize: (queue[index] && queue[index].mode === 'API') || runnerState.options.mode === 'API',
+            blockOnGalat: (queue[index] && queue[index].mode === 'API') || runnerState.options.mode === 'API'
+          }
+        }, 5);
+        continue;
       }
 
       if (!needRedirect && !isDisconnected) break;
@@ -792,7 +845,74 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
     }
 
     if (response && response.status === 'DONE') {
-      const res = response.result || {};
+      let res = response.result || {};
+
+      // ALUR AUTO REVOKE: Jika assignment sudah di-Approve dan tombol Kirim tidak muncul
+      if (res && res.needRevoke && runnerState.options.autoRevoke !== false) {
+        await updateItemStatus(index, 'PROCESSING', 'Assignment sudah di-Approve. Memproses Revoke...');
+        let revokeSuccess = false;
+        let revokeError = null;
+        try {
+          // Coba Revoke langsung pada tab yang sedang aktif terlebih dahulu
+          let revRes = await sendTabMessageWithRetry(tab.id, {
+            action: 'REVOKE_ASSIGNMENT',
+            options: runnerState.options
+          }, 2);
+
+          if (revRes && revRes.status === 'DONE' && revRes.result && revRes.result.success) {
+            revokeSuccess = true;
+          } else if (res.reviewUrl) {
+            // Jika tidak ditemukan di halaman aktif, buka halaman review
+            await chrome.tabs.update(tab.id, { url: res.reviewUrl });
+            await waitForTabComplete(tab.id, 35000, (u) => !/\/edit(\b|\/|$)/i.test(String(u || '').split('?')[0].split('#')[0]));
+            await randomSleep(2000, 3000);
+
+            revRes = await sendTabMessageWithRetry(tab.id, {
+              action: 'REVOKE_ASSIGNMENT',
+              options: runnerState.options
+            }, 5);
+
+            if (revRes && revRes.status === 'DONE' && revRes.result && revRes.result.success) {
+              revokeSuccess = true;
+            } else {
+              revokeError = (revRes && (revRes.result?.error || revRes.error)) || 'Tombol Revoke tidak ditemukan di halaman review';
+            }
+          } else {
+            revokeError = (revRes && (revRes.result?.error || revRes.error)) || 'Tombol Revoke tidak ditemukan';
+          }
+        } catch (e) {
+          revokeError = e.message || String(e);
+        }
+
+        if (!revokeSuccess) {
+          await updateItemStatus(index, 'FAILED', `Gagal Revoke: ${revokeError}`);
+          return { tabIdToClose: tab.id };
+        }
+
+        // Revoke berhasil! Sekarang buka kembali link /edit dan jalankan alur ulang
+        await updateItemStatus(index, 'PROCESSING', 'Revoke berhasil! Membuka kembali formulir untuk mengisi catatan & kirim ulang...');
+        await chrome.tabs.update(tab.id, { url: targetEditUrl });
+        await waitForTabComplete(tab.id, 35000);
+        await randomSleep(2000, 3000);
+
+        const retryRes = await sendTabMessageWithRetry(tab.id, {
+          action: 'EXECUTE_FASIH_WORKFLOW',
+          options: {
+            ...runnerState.options,
+            ...item,
+            isPostRevoke: true,
+            mode: item.mode || runnerState.options.mode,
+            targetUrl: targetEditUrl
+          }
+        }, 5);
+
+        if (!retryRes || retryRes.status === 'ERROR') {
+          await updateItemStatus(index, 'FAILED', `Setelah Revoke, pengisian formulir gagal: ${retryRes?.error || 'Tidak ada respon'}`);
+          return { tabIdToClose: tab.id };
+        }
+        res = retryRes.result || {};
+        res.wasRevoked = true;
+      }
       if (res.skipped) {
         const reason = res.reason || 'Dilewati (Skip)';
         await updateItemStatus(index, 'SKIPPED', reason);
@@ -854,7 +974,7 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
         }
         const kirimNote = res.alreadySubmitted
           ? 'Tombol Kirim tidak ada (sudah terkirim sebelumnya)'
-          : (res.submitted ? 'Sukses terkirim' : 'Catatan tersimpan (tanpa kirim)');
+          : (res.submitted ? `Sukses terkirim${res.wasRevoked ? ' (setelah Revoke)' : ''}` : 'Catatan tersimpan (tanpa kirim)');
         const remarkNote = res.alreadyHasRemark ? ' (Remark sudah ada)' : '';
         if (noApproveButton) {
           res.noApproveButton = true;
@@ -1614,6 +1734,33 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           const ssoStage = response && response.status === 'DONE' && response.result && response.result.ssoStage;
           const isDisconnected = response && response.status === 'DISCONNECTED';
 
+          if (isDisconnected && (isRevokeStep(runnerState.lastWorkflowStep) || runnerState.tabRevokedRecently)) {
+            console.log('[FASIH BG Active] Halaman reload terdeteksi setelah Revoke di tab aktif.');
+            runnerState.tabRevokedRecently = false;
+            runnerState.lastWorkflowStep = '';
+            await sleep(1500);
+            await waitForTabComplete(tabId, 35000);
+            await randomSleep(2000, 3000);
+
+            let curTabUrl = '';
+            try {
+              const tNow = await chrome.tabs.get(tabId);
+              curTabUrl = (tNow && tNow.url) || '';
+            } catch (_) {}
+
+            if (targetEditUrl && !checkIsEditUrl(curTabUrl)) {
+              await chrome.tabs.update(tabId, { url: targetEditUrl });
+              await waitForTabComplete(tabId, 35000);
+              await randomSleep(1800, 2600);
+            }
+
+            response = await sendTabMessageWithRetry(tabId, {
+              action: 'EXECUTE_FASIH_WORKFLOW',
+              options: { ...opts, isPostRevoke: true, targetUrl: targetEditUrl }
+            });
+            continue;
+          }
+
           if (!needRedirect && !isDisconnected) break;
 
           const wasOnExternalSso = isExternalSsoIdpUrl(preStepUrl) || ssoStage === 'SUBMITTED_CREDENTIALS';
@@ -1733,7 +1880,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   // Meneruskan update step dari content script ke popup
-  if (request.action === 'UPDATE_STEP') {
+  if (request.action === 'REVOKE_TRIGGERED') {
+      runnerState.tabRevokedRecently = true;
+    }
+    if (request.action === 'UPDATE_STEP') {
     if (request.step) {
       runnerState.lastWorkflowStep = request.step;
     }

@@ -1482,10 +1482,19 @@
 
   // 6d. Temukan pertanyaan "27. a. Nilai produksi/pendapatan/penjualan barang dan jasa"
   function findQuestion27aElement() {
+    // 1. CARI PRESISI BERDASARKAN ID CONTAINER RESMI FASIH / FormGear:
+    const container27a = document.querySelector('[id^="r27a#"], [id="r27a"], [id^="r27_a#"], [id*="r27a#"], [data-key="r27a"], [data-id*="27. a"]');
+    if (container27a) {
+      const row = getQuestionRowFromElement(container27a) || container27a;
+      const labelCol = row.querySelector('div[class*="@lg/form:w-1/3"], .tw\\:font-semibold, div.tw\\:space-x-2 > div') || row;
+      return labelCol;
+    }
+
+    // 2. Pencarian kriteria teks:
     return findQuestionElementByCriteria({
       number: '27',
       letter: 'a',
-      mustInclude: ['nilai produksi', 'penjualan barang', 'pendapatan penjualan', 'nilai pendapatan'],
+      mustInclude: ['nilai produksi', 'penjualan barang', 'pendapatan penjualan', 'nilai pendapatan', 'barang dan jasa'],
       mustExclude: ['pendapatan lainnya', 'biaya produksi', '27 b', '27. b', '27 c', '27. c', 'b pendapatan', 'rincian c', 'rincian b']
     });
   }
@@ -1712,6 +1721,19 @@
         isSecondary: false,
         exactCodeOnly: true,
         condition: 'DC0_KBLI'
+      });
+      return list;
+    }
+
+    if (options.dc0Target === '27a') {
+      list.push({
+        code: '27.a',
+        label: '27. a. Nilai produksi/pendapatan/penjualan barang dan jasa',
+        finder: findQuestion27aElement,
+        effectiveComment: mainCommentNonUB,
+        isSecondary: false,
+        exactCodeOnly: true,
+        condition: 'DC0_27A'
       });
       return list;
     }
@@ -3594,11 +3616,36 @@
     }
 
     const catatan = options.catatanKbliDiganti || '#DC_01';
-    const qElAfter = findQuestion13gKbliElement() || qEl;
+    let targetQuestionEl = findQuestion13gKbliElement() || qEl;
+    let targetCode = '13.g';
+    let targetLabel = '13. g. Kode KBLI';
+
+    if (options.dc1Target === '27a') {
+      const q27a = await findTargetQuestionWithDynamicScroll(findQuestion27aElement, '27.a', 8);
+      if (q27a) {
+        targetQuestionEl = q27a;
+        targetCode = '27.a';
+        targetLabel = '27. a. Nilai produksi/pendapatan barang dan jasa';
+      } else {
+        return { matched: true, error: `Pertanyaan 27.a tidak ditemukan pada ${usahaName} untuk memberi catatan ${catatan}` };
+      }
+    } else if (options.dc1Target === 'nilai') {
+      const targets = getTargetQuestionsList({ dc0Target: 'nilai', commentText: catatan });
+      const tq = targets[0];
+      if (tq) {
+        const qElFound = await findTargetQuestionWithDynamicScroll(tq.finder, tq.code, 8);
+        if (qElFound) {
+          targetQuestionEl = qElFound;
+          targetCode = tq.code;
+          targetLabel = tq.label;
+        }
+      }
+    }
+
     const okComment = await fillCommentForTargetQuestion({
-      questionEl: qElAfter,
-      targetCode: '13.g',
-      targetLabel: '13. g. Kode KBLI',
+      questionEl: targetQuestionEl,
+      targetCode: targetCode,
+      targetLabel: targetLabel,
       effectiveComment: catatan,
       isSecondary: false,
       exactCodeOnly: true,
@@ -3606,12 +3653,13 @@
       indexStr,
       closeModalOnExisting: Boolean(options.isActiveTabTest) && isSudahTujuan
     });
-    if (!okComment) return { matched: true, error: `Catatan ${catatan} gagal diisi pada 13.g (${usahaName})` };
+    if (!okComment) return { matched: true, error: `Catatan ${catatan} gagal diisi pada ${targetCode} (${usahaName})` };
     return {
       matched: true,
       changed: t.gantiKbli && !isSudahTujuan,
       alreadyExists: Boolean(okComment.alreadyExists),
       foundCode: okComment.foundCode || catatan,
+      targetCode: targetCode,
       catatan
     };
   }
@@ -3793,7 +3841,193 @@
     return null;
   }
 
-  async function executeApprove(options = {}) {
+  // ===================== REVOKE (Batalkan Approve) =====================
+  // Tombol Revoke berada di pojok kanan bawah berbentuk ikon panah putar balik,
+  // tepat di bawah ikon informasi assignment (info) di toolbar kanan.
+  function getFloatingBottomRightCandidates() {
+    const selector = 'button, [role="button"], a, div[class*="rounded"], span[class*="rounded"]';
+    const all = Array.from(document.querySelectorAll(selector));
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+
+    return all.filter(el => {
+      if (el.closest('header, nav, [role="dialog"], [role="alertdialog"]')) return false;
+      const r = el.getBoundingClientRect();
+      if (r.right < winW * 0.5 || r.bottom < winH * 0.3) return false;
+      if (r.width < 18 || r.width > 140 || r.height < 18 || r.height > 140) return false;
+      return true;
+    });
+  }
+
+  function findRevokeButton() {
+    const candidates = getFloatingBottomRightCandidates();
+
+    // 1. Label / Title / Tooltip eksplisit "revoke"
+    for (const el of candidates) {
+      const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''} ${el.getAttribute('data-tooltip') || ''} ${el.innerText || ''}`.toLowerCase();
+      if (label.includes('revoke') || label.includes('tarik kembali') || label.includes('batalkan approve') || label.includes('unapprove')) {
+        return el.closest('button, [role="button"], a') || el;
+      }
+    }
+
+    // 2. Icon Tabler "panah putar balik" (arrow-back-up / rotate / history / undo)
+    const undoClasses = [
+      'tabler-icon-arrow-back-up',
+      'tabler-icon-arrow-back',
+      'tabler-icon-rotate',
+      'tabler-icon-rotate-2',
+      'tabler-icon-rotate-clockwise',
+      'tabler-icon-rotate-counter-clockwise',
+      'tabler-icon-history',
+      'tabler-icon-undo',
+      'tabler-icon-corner-up-left'
+    ];
+
+    for (const el of candidates) {
+      const svg = el.querySelector('svg') || (el.tagName === 'svg' ? el : null);
+      if (!svg) continue;
+      const svgCls = (svg.getAttribute('class') || '').toLowerCase();
+      if (undoClasses.some(c => svgCls.includes(c))) {
+        return el.closest('button, [role="button"], a') || el;
+      }
+      const paths = Array.from(svg.querySelectorAll('path'));
+      for (const p of paths) {
+        const d = (p.getAttribute('d') || '').toLowerCase();
+        if (d.includes('m9 14l-4 -4l4 -4') || d.includes('m5 10h11a4') || d.includes('m9 11l-4 4') || d.includes('19.95 11a8 8') || d.includes('m12 8l-4 -4')) {
+          return el.closest('button, [role="button"], a') || el;
+        }
+      }
+    }
+
+    // 3. Tombol oranye bulat tepat di bawah tombol Info pada toolbar melayang (sesuai tampilan FASIH)
+    const infoBtn = candidates.find(el => {
+      const svg = el.querySelector('svg');
+      const cls = svg ? (svg.getAttribute('class') || '').toLowerCase() : '';
+      const text = `${el.getAttribute('title') || ''} ${el.getAttribute('aria-label') || ''} ${cls}`.toLowerCase();
+      return text.includes('info') || cls.includes('icon-info');
+    });
+
+    if (infoBtn) {
+      const infoRect = infoBtn.getBoundingClientRect();
+      const belowList = candidates.filter(el => {
+        if (el === infoBtn || el.contains(infoBtn)) return false;
+        const r = el.getBoundingClientRect();
+        return r.top >= infoRect.bottom - 5 && r.top <= infoRect.bottom + 120 && Math.abs(r.left - infoRect.left) < 45;
+      });
+      if (belowList.length > 0) {
+        belowList.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+        return belowList[0].closest('button, [role="button"], a') || belowList[0];
+      }
+    }
+
+    // 4. Tombol oranye bulat paling bawah di toolbar kanan bawah (sesuai Gambar 1)
+    const orangeButtons = candidates.filter(el => {
+      const svg = el.querySelector('svg');
+      if (!svg) return false;
+      const rgb = (getComputedStyle(el).backgroundColor.match(/\d+/g) || []).map(Number);
+      const isOrange = rgb.length >= 3 && rgb[0] > 180 && rgb[1] > 70 && rgb[2] < 120;
+      return isOrange;
+    });
+
+    if (orangeButtons.length > 0) {
+      orangeButtons.sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top);
+      return orangeButtons[0].closest('button, [role="button"], a') || orangeButtons[0];
+    }
+
+    return null;
+  }
+
+  async function findRevokeButtonDeep(maxWaitMs = 5000) {
+    const direct = findRevokeButton();
+    if (direct) return direct;
+
+    const start = Date.now();
+    while (Date.now() - start < maxWaitMs) {
+      const candidates = getFloatingBottomRightCandidates().filter(el => el.querySelector('svg'));
+      for (const el of candidates) {
+        hoverEvents(el, true);
+        await sleep(200);
+        const tips = visibleTooltipText();
+        hoverEvents(el, false);
+        await sleep(50);
+        if (tips.some(t => t.includes('revoke') || t.includes('tarik') || t.includes('batal'))) {
+          return el.closest('button, [role="button"], a') || el;
+        }
+      }
+      const recheck = findRevokeButton();
+      if (recheck) return recheck;
+      await sleep(300);
+    }
+    return findRevokeButton();
+  }
+
+  function findRevokeConfirmButton() {
+    // 1. Cari modal/dialog konfirmasi Revoke ("Revoke Assignment?" -> tombol "Konfirmasi")
+    const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"], [data-kb-dialog-content], [data-state="open"], .modal, div[class*="modal"], div[class*="dialog"]'));
+    for (const d of dialogs) {
+      if (d.offsetParent === null && getComputedStyle(d).position !== 'fixed') continue;
+      const txt = (d.textContent || '').toLowerCase();
+      if (txt.includes('revoke')) {
+        const btns = Array.from(d.querySelectorAll('button, [role="button"]'));
+        for (const b of btns) {
+          const bTxt = (b.textContent || '').trim().toLowerCase();
+          if (bTxt === 'konfirmasi' || bTxt === 'ya' || bTxt === 'ya, revoke' || bTxt.includes('konfirmasi')) {
+            return b;
+          }
+        }
+      }
+    }
+
+    // 2. Fallback: cari tombol dengan teks "Konfirmasi"
+    const allButtons = Array.from(document.querySelectorAll('button, [role="button"]'));
+    return allButtons.find(b => {
+      const bTxt = (b.textContent || '').trim().toLowerCase();
+      const isVisible = (b.offsetWidth > 0 && b.offsetHeight > 0) || getComputedStyle(b).position === 'fixed';
+      return isVisible && (bTxt === 'konfirmasi' || bTxt === 'ya, revoke');
+    });
+  }
+
+  async function executeRevoke(options = {}) {
+    notifyStep('REVOKE_START', 'Mencari tombol Revoke di pojok kanan bawah...', 'progress');
+    let btn = await findRevokeButtonDeep(6000);
+    if (!btn) {
+      notifyStep('REVOKE_NOT_FOUND', 'Tombol Revoke tidak ditemukan di toolbar kanan bawah.', 'error');
+      return { success: false, error: 'Tombol Revoke tidak ditemukan di toolbar kanan bawah' };
+    }
+
+    notifyStep('REVOKE_CLICK', 'Mengklik tombol Revoke...', 'progress');
+    try { btn.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (_) {}
+    await humanClick(btn);
+    await randomSleep(800, 1400);
+
+    // Cari dialog konfirmasi: "Revoke Assignment?" -> tombol "Konfirmasi"
+    notifyStep('REVOKE_CONFIRM', 'Menunggu dialog "Revoke Assignment?"...', 'progress');
+    let confirmBtn = null;
+    const startWait = Date.now();
+
+    while (Date.now() - startWait < 8000) {
+      confirmBtn = findRevokeConfirmButton();
+      if (confirmBtn) break;
+      await sleep(350);
+    }
+
+    if (confirmBtn) {
+      notifyStep('REVOKE_CONFIRM_CLICK', `Mengonfirmasi Revoke ("${(confirmBtn.textContent || '').trim()}")...`, 'progress');
+      try {
+        chrome.runtime.sendMessage({ action: 'REVOKE_TRIGGERED' });
+      } catch (_) {}
+      await humanClick(confirmBtn);
+      await randomSleep(2500, 3500);
+    } else {
+      notifyStep('REVOKE_NO_DIALOG', 'Dialog konfirmasi tidak muncul, menunggu pembaruan status...', 'progress');
+      await randomSleep(2000, 3000);
+    }
+
+    notifyStep('REVOKE_SUCCESS', 'Revoke berhasil dikonfirmasi! Assignment terbuka untuk diedit.', 'success');
+    return { success: true, revoked: true };
+  }
+
+    async function executeApprove(options = {}) {
     const stepDelay = options.stepDelay || 1500;
 
     // Dari modal sukses kirim: klik "Kembali ke Review" seperti pengguna
@@ -4058,7 +4292,16 @@
               needRedirectEdit: true,
               editUrl: targetEditUrl
             };
-          } else if (findApproveButton()) {
+          } else if (findApproveButton() || findRevokeButton()) {
+            const hasRevoke = Boolean(findRevokeButton());
+            if (hasRevoke && options.autoRevoke !== false && !options.isPostRevoke) {
+              notifyStep('STEP_1_APPROVED', 'Assignment terdeteksi sudah di-Approve. Mempersiapkan Revoke...', 'warning');
+              return {
+                success: false,
+                needRevoke: true,
+                reviewUrl: window.location.href.split('?')[0].split('#')[0]
+              };
+            }
             notifyStep('STEP_1_REVIEW', 'Halaman review terdeteksi (sudah terkirim sebelumnya). Melanjutkan ke tahap Approve...', 'progress');
             return {
               success: true,
@@ -4076,6 +4319,22 @@
           }
         }
         notifyStep('STEP_1', 'Formulir kuisioner berhasil dibuka!', 'progress');
+
+    // CEK APAKAH ASSIGNMENT SUDAH DI-APPROVE (Terdeteksi tombol Revoke di pojok kanan bawah)
+    if (options.autoRevoke !== false && !options.isPostRevoke) {
+      const earlyRevokeBtn = findRevokeButton();
+      if (earlyRevokeBtn) {
+        notifyStep('AUTO_REVOKE', 'Assignment berstatus Approved (terdeteksi tombol Revoke di pojok kanan bawah). Melakukan Revoke...', 'warning');
+        const revResult = await executeRevoke(options);
+        if (revResult.success) {
+          notifyStep('AUTO_REVOKE_DONE', 'Revoke selesai! Melanjutkan pengisian catatan...', 'progress');
+          await randomSleep(1800, 2500);
+          options.isPostRevoke = true;
+        } else {
+          notifyStep('AUTO_REVOKE_WARN', `Gagal Revoke dini: ${revResult.error}, mencoba melanjutkan...`, 'warning');
+        }
+      }
+    }
       }
     }
 
@@ -4225,7 +4484,7 @@
         if (r.matched && r.alreadyExists && !r.changed) {
           existingRemarksCount++;
           lastFoundExistingCode = r.foundCode;
-          lastFoundExistingReason = `Remark ${r.foundCode} sudah ada pada 13.g (${usahaName})`;
+          lastFoundExistingReason = `Remark ${r.foundCode} sudah ada pada ${r.targetCode || '13.g'} (${usahaName})`;
           notifyStep('STEP_5_ALREADY_EXISTS', `${lastFoundExistingReason}. Langsung tutup tab & lanjut baris berikutnya...`, 'warning');
           return {
             success: true,
@@ -4237,7 +4496,7 @@
         }
         if (r.matched) {
           newRemarksAdded++;
-          kbliProcessed.push(`${usahaName}${r.changed ? ` (${kbliTask.kbliAwal}→${kbliTask.kbliTujuan})` : ''} ${r.catatan}`);
+          kbliProcessed.push(`${usahaName}${r.changed ? ` (${kbliTask.kbliAwal}→${kbliTask.kbliTujuan})` : ''} ${r.catatan} di ${r.targetCode || '13.g'}`);
         } else if (r.note) {
           kbliSkippedNotes.push(r.note);
           notifyStep('KBLI_SKIP_UNIT', r.note, 'progress');
@@ -4395,6 +4654,32 @@
     readKirimModalGalat, 12000);
       if (!topSubmitBtn) {
         const reviewUrlNoKirim = window.location.href.split('?')[0].split('#')[0].replace(/\/+$/, '').replace(/\/edit$/, '');
+        const autoRevokeEnabled = options.autoRevoke !== false;
+        if (autoRevokeEnabled && !options.isPostRevoke) {
+          // Coba Revoke langsung pada halaman ini terlebih dahulu!
+          const samePageRevokeBtn = await findRevokeButtonDeep(4000);
+          if (samePageRevokeBtn) {
+            notifyStep('STEP_6_REVOKE_DIRECT', 'Tombol Kirim tidak ada (dokumen Approved). Mengklik Revoke di pojok kanan bawah...', 'warning');
+            const revRes = await executeRevoke(options);
+            if (revRes.success) {
+              notifyStep('STEP_6_REVOKE_OK', 'Revoke berhasil! Menunggu tombol Kirim muncul...', 'progress');
+              await randomSleep(2000, 3000);
+              options.isPostRevoke = true;
+              topSubmitBtn = await waitForElement(findTopRightSubmitSurveyButton, readKirimModalGalat, 12000);
+            }
+          }
+          if (!topSubmitBtn) {
+            notifyStep('STEP_6_NEED_REVOKE', 'Tombol Kirim tidak ada karena assignment sudah di-Approve. Mempersiapkan Revoke via Review...', 'warning');
+            return {
+              success: false,
+              needRevoke: true,
+              reviewUrl: reviewUrlNoKirim,
+              alreadyHasRemark: Boolean(existingRemarksCount > 0 && newRemarksAdded === 0),
+              existingRemarkCode: lastFoundExistingCode,
+              kbliSummary: kbliTask ? kbliProcessed.join('; ') : undefined
+            };
+          }
+        }
         notifyStep('STEP_6_NO_KIRIM', 'Tombol Kirim tidak ada: dokumen kemungkinan sudah terkirim. Lanjut ke Approve.', 'warning');
         return {
           success: true,
@@ -4635,6 +4920,18 @@
       executionState.isRunning = true;
       executionState.isAborted = false;
       executeApprove(request.options || {})
+        .then((result) => { executionState.isRunning = false; sendResponse({ status: 'DONE', result }); })
+        .catch((error) => {
+          executionState.isRunning = false;
+          sendResponse({ status: error.name === 'AbortError' ? 'ABORTED' : 'ERROR', error: error.message || String(error) });
+        });
+      return true;
+    }
+
+    if (request.action === 'REVOKE_ASSIGNMENT') {
+      executionState.isRunning = true;
+      executionState.isAborted = false;
+      executeRevoke(request.options || {})
         .then((result) => { executionState.isRunning = false; sendResponse({ status: 'DONE', result }); })
         .catch((error) => {
           executionState.isRunning = false;

@@ -86,6 +86,7 @@
               <label for="dc0TargetSelect">Ditaruh di variabel:</label>
               <select id="dc0TargetSelect">
                 <option value="nilai">Nilai produksi (27.a / 31.a / UB 23.a)</option>
+                <option value="27a">27. a. Nilai produksi/pendapatan barang dan jasa</option>
                 <option value="kbli">Kode KBLI (13.g)</option>
               </select>
             </div>
@@ -99,8 +100,12 @@
               <input type="text" id="catatanDigantiInput" value="#DC_01" placeholder="#DC_01">
             </div>
             <div class="form-group">
-              <label>Ditaruh di variabel:</label>
-              <div class="static-field">Kode KBLI (13.g)</div>
+              <label for="dc1TargetSelect">Ditaruh di variabel:</label>
+              <select id="dc1TargetSelect">
+                <option value="kbli">Kode KBLI (13.g)</option>
+                <option value="27a">27. a. Nilai produksi/pendapatan barang dan jasa</option>
+                <option value="nilai">Nilai produksi (27.a / 31.a / UB 23.a)</option>
+              </select>
             </div>
           </div>
         </div>
@@ -189,6 +194,10 @@
           <label class="checkbox-label">
             <input type="checkbox" id="checkAutoSsoLogin" checked>
             <span>Auto Login SSO Eksternal jika diminta / sesi habis</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="checkAutoRevoke" checked>
+            <span>Auto Revoke jika assignment sudah di-Approve (agar bisa diberi catatan & dikirim ulang)</span>
           </label>
           <label class="checkbox-label">
             <input type="checkbox" id="checkRequireConfirm">
