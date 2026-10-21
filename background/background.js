@@ -859,7 +859,9 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
             options: runnerState.options
           }, 2);
 
-          if (revRes && revRes.status === 'DONE' && revRes.result && revRes.result.success) {
+          const isRevDisconn = (r) => r && r.status === 'DISCONNECTED' && (runnerState.tabRevokedRecently || isRevokeStep(runnerState.lastWorkflowStep));
+
+          if ((revRes && revRes.status === 'DONE' && revRes.result && revRes.result.success) || isRevDisconn(revRes)) {
             revokeSuccess = true;
           } else if (res.reviewUrl) {
             // Jika tidak ditemukan di halaman aktif, buka halaman review
@@ -872,7 +874,7 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
               options: runnerState.options
             }, 5);
 
-            if (revRes && revRes.status === 'DONE' && revRes.result && revRes.result.success) {
+            if ((revRes && revRes.status === 'DONE' && revRes.result && revRes.result.success) || isRevDisconn(revRes)) {
               revokeSuccess = true;
             } else {
               revokeError = (revRes && (revRes.result?.error || revRes.error)) || 'Tombol Revoke tidak ditemukan di halaman review';

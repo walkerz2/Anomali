@@ -2387,20 +2387,28 @@
     const visible = (b) => { const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
     const label = (b) => (b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
 
-    // 1. Tombol bertuliskan persis "Kirim" (header form, ikon pesawat kertas)
-    const exact = els.filter(b => label(b) === 'kirim' && visible(b));
+    // 1. Tombol bertuliskan persis "Kirim" atau "Kirim Survei"
+    const exact = els.filter(b => (label(b) === 'kirim' || label(b) === 'kirim survei' || label(b) === 'kirimkan') && visible(b));
     if (exact.length) {
       exact.sort((x, y) => x.getBoundingClientRect().top - y.getBoundingClientRect().top);
       return exact[0];
     }
-    // 2. Tombol berisi kata Kirim + ikon send / kelas primary
+    // 2. Tombol berisi kata Kirim (panjang teks <= 25)
     for (const b of els) {
       const t = label(b);
-      if (!t.includes('kirim') || t.length > 20) continue;
+      if (!t.includes('kirim') || t.length > 25) continue;
+      if (visible(b)) return b;
+    }
+    // 3. Tombol dengan ikon send / paper-plane di bagian header atas (top < 150)
+    for (const b of els) {
+      const rect = b.getBoundingClientRect();
+      if (rect.top > 150) continue;
       const svg = b.querySelector('svg');
-      const svgCls = svg ? (svg.getAttribute('class') || '') : '';
-      if (svgCls.includes('send') || (svg && svg.querySelector('path[d*="M10 14l11 -11"], path[d*="21 3l-6.5 18"]'))) return b;
-      if (String(b.className).includes('bg-primary') || String(b.className).includes('text-primary-foreground')) return b;
+      if (!svg) continue;
+      const svgCls = (svg.getAttribute('class') || '').toLowerCase();
+      if (svgCls.includes('send') || svgCls.includes('paper-plane') || (svg && svg.querySelector('path[d*="M10 14l11 -11"], path[d*="21 3l-6.5 18"]'))) {
+        if (visible(b)) return b;
+      }
     }
     return null;
   }
@@ -3899,41 +3907,6 @@
       }
     }
 
-    // 3. Tombol oranye bulat tepat di bawah tombol Info pada toolbar melayang (sesuai tampilan FASIH)
-    const infoBtn = candidates.find(el => {
-      const svg = el.querySelector('svg');
-      const cls = svg ? (svg.getAttribute('class') || '').toLowerCase() : '';
-      const text = `${el.getAttribute('title') || ''} ${el.getAttribute('aria-label') || ''} ${cls}`.toLowerCase();
-      return text.includes('info') || cls.includes('icon-info');
-    });
-
-    if (infoBtn) {
-      const infoRect = infoBtn.getBoundingClientRect();
-      const belowList = candidates.filter(el => {
-        if (el === infoBtn || el.contains(infoBtn)) return false;
-        const r = el.getBoundingClientRect();
-        return r.top >= infoRect.bottom - 5 && r.top <= infoRect.bottom + 120 && Math.abs(r.left - infoRect.left) < 45;
-      });
-      if (belowList.length > 0) {
-        belowList.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-        return belowList[0].closest('button, [role="button"], a') || belowList[0];
-      }
-    }
-
-    // 4. Tombol oranye bulat paling bawah di toolbar kanan bawah (sesuai Gambar 1)
-    const orangeButtons = candidates.filter(el => {
-      const svg = el.querySelector('svg');
-      if (!svg) return false;
-      const rgb = (getComputedStyle(el).backgroundColor.match(/\d+/g) || []).map(Number);
-      const isOrange = rgb.length >= 3 && rgb[0] > 180 && rgb[1] > 70 && rgb[2] < 120;
-      return isOrange;
-    });
-
-    if (orangeButtons.length > 0) {
-      orangeButtons.sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top);
-      return orangeButtons[0].closest('button, [role="button"], a') || orangeButtons[0];
-    }
-
     return null;
   }
 
@@ -4249,31 +4222,12 @@
         };
       }
 
-      // Cek apakah formulir sudah langsung terbuka
-      let formReady = isAnyFormBlockPresent();
-      if (formReady) {
-        notifyStep('STEP_1', 'Formulir sudah berada dalam mode pengisian. Melanjutkan...');
-      } else {
-        notifyStep('STEP_1', 'Mencari tombol Review / Edit...', 'progress');
-        let editOrSso = await waitForElement(() => {
-          if (options.autoSsoLogin !== false && (findSsoEksternalButton() || findSsoPasswordInput() || findSessionExpiredElement() || isLoginPage())) {
-            return { type: 'SSO' };
-          }
-          const b = findEditButton();
-          return b ? { type: 'EDIT', btn: b } : null;
-        }, 8000);
-
-        if (editOrSso && editOrSso.type === 'EDIT' && editOrSso.btn) {
-          notifyStep('STEP_1', 'Tombol Review / Edit ditemukan. Mengklik...', 'progress');
-          await humanClick(editOrSso.btn);
-          await sleep(getJitterDelay(stepDelay));
-          formReady = await waitForElement(isAnyFormBlockPresent, 20000);
-        }
-
-        // Jika tombol Edit tidak ada ATAU setelah diklik formulir belum muncul:
+      // Cek apakah URL sudah berada pada mode /edit:
+      if (checkIsEditUrl(window.location.href)) {
+        notifyStep('STEP_1', 'Memuat formulir kuisioner (/edit)...', 'progress');
+        let formReady = await waitForElement(() => isAnyFormBlockPresent() || findTopRightSubmitSurveyButton(), 15000);
         if (!formReady) {
-          // Periksa apakah halaman meminta login SSO
-          if ((editOrSso && editOrSso.type === 'SSO') || (options.autoSsoLogin !== false && (isLoginPage() || findSsoEksternalButton() || findSessionExpiredElement()))) {
+          if (options.autoSsoLogin !== false && (isLoginPage() || findSsoEksternalButton() || findSessionExpiredElement())) {
             notifyStep('STEP_SSO', 'Sesi login dibutuhkan. Memproses SSO Eksternal...', 'progress');
             const ssoRes = await handleSsoLogin(options);
             if (ssoRes && ssoRes.success) {
@@ -4282,59 +4236,72 @@
               return { success: true, needRedirectEdit: true, ssoStage: ssoRes.ssoStage, editUrl: targetUrl };
             }
           }
-
-          const currentUrl = window.location.href;
-          const targetEditUrl = options.targetUrl || getEditUrl(currentUrl);
-          if (!checkIsEditUrl(currentUrl) && targetEditUrl) {
-            notifyStep('STEP_1_REDIRECT', `Mengalihkan ke URL /edit: ${targetEditUrl}...`, 'progress');
-            return {
-              success: true,
-              needRedirectEdit: true,
-              editUrl: targetEditUrl
-            };
-          } else if (findApproveButton() || findRevokeButton()) {
-            const hasRevoke = Boolean(findRevokeButton());
-            if (hasRevoke && options.autoRevoke !== false && !options.isPostRevoke) {
-              notifyStep('STEP_1_APPROVED', 'Assignment terdeteksi sudah di-Approve. Mempersiapkan Revoke...', 'warning');
-              return {
-                success: false,
-                needRevoke: true,
-                reviewUrl: window.location.href.split('?')[0].split('#')[0]
-              };
-            }
-            notifyStep('STEP_1_REVIEW', 'Halaman review terdeteksi (sudah terkirim sebelumnya). Melanjutkan ke tahap Approve...', 'progress');
-            return {
-              success: true,
-              submitted: false,
-              alreadySubmitted: true,
-              reviewUrl: window.location.href.split('?')[0].split('#')[0]
-            };
-          } else {
-            notifyStep('SKIPPED', 'Formulir tidak ditemukan setelah mencari tombol Edit pada tab aktif. Melewati...', 'warning');
-            return {
-              success: true,
-              skipped: true,
-              reason: 'Formulir tidak terbuka: tombol Review/Edit tidak ditemukan atau tidak membuka form'
-            };
-          }
+          await randomSleep(1500, 2500);
         }
         notifyStep('STEP_1', 'Formulir kuisioner berhasil dibuka!', 'progress');
-
-    // CEK APAKAH ASSIGNMENT SUDAH DI-APPROVE (Terdeteksi tombol Revoke di pojok kanan bawah)
-    if (options.autoRevoke !== false && !options.isPostRevoke) {
-      const earlyRevokeBtn = findRevokeButton();
-      if (earlyRevokeBtn) {
-        notifyStep('AUTO_REVOKE', 'Assignment berstatus Approved (terdeteksi tombol Revoke di pojok kanan bawah). Melakukan Revoke...', 'warning');
-        const revResult = await executeRevoke(options);
-        if (revResult.success) {
-          notifyStep('AUTO_REVOKE_DONE', 'Revoke selesai! Melanjutkan pengisian catatan...', 'progress');
-          await randomSleep(1800, 2500);
-          options.isPostRevoke = true;
+      } else {
+        // Cek apakah formulir sudah langsung terbuka (non-edit URL tetapi form muncul)
+        let formReady = isAnyFormBlockPresent();
+        if (formReady) {
+          notifyStep('STEP_1', 'Formulir sudah berada dalam mode pengisian. Melanjutkan...');
         } else {
-          notifyStep('AUTO_REVOKE_WARN', `Gagal Revoke dini: ${revResult.error}, mencoba melanjutkan...`, 'warning');
+          notifyStep('STEP_1', 'Mencari tombol Review / Edit...', 'progress');
+          let editOrSso = await waitForElement(() => {
+            if (options.autoSsoLogin !== false && (findSsoEksternalButton() || findSsoPasswordInput() || findSessionExpiredElement() || isLoginPage())) {
+              return { type: 'SSO' };
+            }
+            const b = findEditButton();
+            return b ? { type: 'EDIT', btn: b } : null;
+          }, 8000);
+
+          if (editOrSso && editOrSso.type === 'EDIT' && editOrSso.btn) {
+            notifyStep('STEP_1', 'Tombol Review / Edit ditemukan. Mengklik...', 'progress');
+            await humanClick(editOrSso.btn);
+            await sleep(getJitterDelay(stepDelay));
+            formReady = await waitForElement(isAnyFormBlockPresent, 20000);
+          }
+
+          // Jika tombol Edit tidak ada ATAU setelah diklik formulir belum muncul:
+          if (!formReady) {
+            // Periksa apakah halaman meminta login SSO
+            if ((editOrSso && editOrSso.type === 'SSO') || (options.autoSsoLogin !== false && (isLoginPage() || findSsoEksternalButton() || findSessionExpiredElement()))) {
+              notifyStep('STEP_SSO', 'Sesi login dibutuhkan. Memproses SSO Eksternal...', 'progress');
+              const ssoRes = await handleSsoLogin(options);
+              if (ssoRes && ssoRes.success) {
+                const currentUrl = window.location.href;
+                const targetUrl = options.targetUrl || getEditUrl(currentUrl) || '';
+                return { success: true, needRedirectEdit: true, ssoStage: ssoRes.ssoStage, editUrl: targetUrl };
+              }
+            }
+
+            const currentUrl = window.location.href;
+            const targetEditUrl = options.targetUrl || getEditUrl(currentUrl);
+            if (!checkIsEditUrl(currentUrl) && targetEditUrl) {
+              notifyStep('STEP_1_REDIRECT', `Mengalihkan ke URL /edit: ${targetEditUrl}...`, 'progress');
+              return {
+                success: true,
+                needRedirectEdit: true,
+                editUrl: targetEditUrl
+              };
+            } else if (findApproveButton()) {
+              notifyStep('STEP_1_REVIEW', 'Halaman review terdeteksi (sudah terkirim sebelumnya). Melanjutkan ke tahap Approve...', 'progress');
+              return {
+                success: true,
+                submitted: false,
+                alreadySubmitted: true,
+                reviewUrl: window.location.href.split('?')[0].split('#')[0]
+              };
+            } else {
+              notifyStep('SKIPPED', 'Formulir tidak ditemukan setelah mencari tombol Edit pada tab aktif. Melewati...', 'warning');
+              return {
+                success: true,
+                skipped: true,
+                reason: 'Formulir tidak terbuka: tombol Review/Edit tidak ditemukan atau tidak membuka form'
+              };
+            }
+          }
+          notifyStep('STEP_1', 'Formulir kuisioner berhasil dibuka!', 'progress');
         }
-      }
-    }
       }
     }
 
@@ -4481,7 +4448,7 @@
           notifyStep('KBLI_ERROR', r.error, 'error');
           return { success: false, error: `KBLI: ${r.error}` };
         }
-        if (r.matched && r.alreadyExists && !r.changed) {
+        if (r.matched && r.alreadyExists && !r.changed && !options.isPostRevoke) {
           existingRemarksCount++;
           lastFoundExistingCode = r.foundCode;
           lastFoundExistingReason = `Remark ${r.foundCode} sudah ada pada ${r.targetCode || '13.g'} (${usahaName})`;
@@ -4560,7 +4527,7 @@
           };
         }
 
-        if (commentRes && commentRes.alreadyExists) {
+        if (commentRes && commentRes.alreadyExists && !options.isPostRevoke) {
           existingRemarksCount++;
           lastFoundExistingCode = commentRes.foundCode;
           lastFoundExistingReason = `Remark ${commentRes.foundCode} sudah ada pada ${tq.code} (${usahaName})`;
@@ -4589,7 +4556,7 @@
     }
 
     // Jika semua unit usaha sudah memiliki remark sebelumnya: langsung tutup tab & lanjut baris berikutnya
-    if (newRemarksAdded === 0 && existingRemarksCount > 0) {
+    if (newRemarksAdded === 0 && existingRemarksCount > 0 && !options.isPostRevoke) {
       notifyStep('STEP_5_ALREADY_EXISTS', `${lastFoundExistingReason || 'Remark sudah ada sebelumnya'}. Langsung tutup tab & lanjut baris berikutnya...`, 'warning');
       return {
         success: true,
@@ -4650,8 +4617,7 @@
       await randomSleep(500, 800);
 
       window.scrollTo({ top: 0, behavior: 'auto' });
-      let topSubmitBtn = await waitForElement(findTopRightSubmitSurveyButton,
-    readKirimModalGalat, 12000);
+      let topSubmitBtn = await waitForElement(findTopRightSubmitSurveyButton, 12000);
       if (!topSubmitBtn) {
         const reviewUrlNoKirim = window.location.href.split('?')[0].split('#')[0].replace(/\/+$/, '').replace(/\/edit$/, '');
         const autoRevokeEnabled = options.autoRevoke !== false;
@@ -4665,7 +4631,7 @@
               notifyStep('STEP_6_REVOKE_OK', 'Revoke berhasil! Menunggu tombol Kirim muncul...', 'progress');
               await randomSleep(2000, 3000);
               options.isPostRevoke = true;
-              topSubmitBtn = await waitForElement(findTopRightSubmitSurveyButton, readKirimModalGalat, 12000);
+              topSubmitBtn = await waitForElement(findTopRightSubmitSurveyButton, 12000);
             }
           }
           if (!topSubmitBtn) {
