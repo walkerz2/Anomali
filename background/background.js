@@ -166,7 +166,8 @@ async function sendWebhookErrorNotification({
 
     const pcName = String(opts.pcName || 'PC 1').trim() || 'PC 1';
     const kategori = event === 'TEST_WEBHOOK' ? 'TEST_WEBHOOK' : classifyErrorCategory(errorMsg);
-    const modeCode = (item && item.mode === 'DC1') || opts.mode === 'DC1' ? '#DC_01' : ((item && item.mode === 'API') || opts.mode === 'API' ? 'API_VARIABEL' : '#DC_00');
+    const isNtb = (item && item.ntbInfo) || opts.mode === 'NTB';
+    const modeCode = isNtb ? (item && item.mode === 'API' ? 'NTB_IMPUTASI' : 'NTB_WAJAR') : ((item && item.mode === 'DC1') || opts.mode === 'DC1' ? '#DC_01' : ((item && item.mode === 'API') || opts.mode === 'API' ? 'API_VARIABEL' : '#DC_00'));
     const rowNum = item ? (item.excelRowNum || (index !== null ? index + 1 : '-')) : (index !== null ? index + 1 : '-');
     const namaUsaha = (item && item.nama_usaha) || '-';
     const linkFasih = (item && (item.link_fasih_sm || item.link)) || (runnerState && runnerState.activeTargetUrl) || '-';
@@ -676,6 +677,8 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
         mode: (queue[index] && queue[index].mode) || runnerState.options.mode,
         kbliTask: (queue[index] && queue[index].kbliTask) || null,
         targetUsaha: (queue[index] && queue[index].targetUsaha) || '',
+        commentText: (queue[index] && queue[index].commentText) || runnerState.options.commentText || '#DC_00',
+        dc0Target: (queue[index] && queue[index].dc0Target) || runnerState.options.dc0Target || 'nilai',
         apiFinalize: (queue[index] && queue[index].mode === 'API') || runnerState.options.mode === 'API',
         blockOnGalat: (queue[index] && queue[index].mode === 'API') || runnerState.options.mode === 'API'
       }
@@ -742,6 +745,8 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
             mode: (queue[index] && queue[index].mode) || runnerState.options.mode,
             kbliTask: (queue[index] && queue[index].kbliTask) || null,
             targetUsaha: (queue[index] && queue[index].targetUsaha) || '',
+            commentText: (queue[index] && queue[index].commentText) || runnerState.options.commentText || '#DC_00',
+            dc0Target: (queue[index] && queue[index].dc0Target) || runnerState.options.dc0Target || 'nilai',
             apiFinalize: (queue[index] && queue[index].mode === 'API') || runnerState.options.mode === 'API',
             blockOnGalat: (queue[index] && queue[index].mode === 'API') || runnerState.options.mode === 'API'
           }
@@ -830,7 +835,9 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
           isActiveTabTest: false,
           mode: (queue[index] && queue[index].mode) || runnerState.options.mode,
           kbliTask: (queue[index] && queue[index].kbliTask) || null,
-          targetUsaha: (queue[index] && queue[index].targetUsaha) || ''
+          targetUsaha: (queue[index] && queue[index].targetUsaha) || '',
+          commentText: (queue[index] && queue[index].commentText) || runnerState.options.commentText || '#DC_00',
+          dc0Target: (queue[index] && queue[index].dc0Target) || runnerState.options.dc0Target || 'nilai'
         }
       }, 5);
 

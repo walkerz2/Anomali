@@ -38,6 +38,10 @@
           <span class="mode-code tag-api">API</span>
           <span class="mode-name">Ubah Variabel</span>
         </button>
+        <button class="mode-tab" data-mode="NTB" role="tab" type="button">
+          <span class="mode-code tag-ntb">NTB</span>
+          <span class="mode-name">Validasi Rasio</span>
+        </button>
       </nav>
 
       <p class="mode-desc" id="modeDesc"></p>
@@ -86,7 +90,6 @@
               <label for="dc0TargetSelect">Ditaruh di variabel:</label>
               <select id="dc0TargetSelect">
                 <option value="nilai">Nilai produksi (27.a / 31.a / UB 23.a)</option>
-                <option value="27a">27. a. Nilai produksi/pendapatan barang dan jasa</option>
                 <option value="kbli">Kode KBLI (13.g)</option>
               </select>
             </div>
@@ -103,7 +106,6 @@
               <label for="dc1TargetSelect">Ditaruh di variabel:</label>
               <select id="dc1TargetSelect">
                 <option value="kbli">Kode KBLI (13.g)</option>
-                <option value="27a">27. a. Nilai produksi/pendapatan barang dan jasa</option>
                 <option value="nilai">Nilai produksi (27.a / 31.a / UB 23.a)</option>
               </select>
             </div>
@@ -134,6 +136,50 @@
             <button id="btnApiFindKey" class="btn-template btn-inline" type="button" title="Cari nama variabel (dataKey) dari label pertanyaan di dokumen yang sedang dibuka">Cari dataKey</button>
           </div>
           <p class="api-note">Variabel KBLI tidak diubah di sini (pakai menu #DC_01). Setiap variabel yang berubah diberi catatan sesuai kolom <b>kode_catatan</b> (#DC_01–#DC_04; kosong = #DC_01). Perubahan lewat API melewati validasi form. Setelah disimpan, bot membuka form dan menekan <b>Kirim</b>; bila FASIH menampilkan <b>GALAT</b>, Kirim dibatalkan.</p>
+        </div>
+
+        <!-- Pengaturan khusus Validasi Rasio NTB -->
+        <div class="mode-panel hidden" data-panel="NTB">
+          <div class="ntb-summary-card" id="ntbSummaryBox">
+            <div class="ntb-summary-title">Ringkasan Validasi Rasio NTB (Flag 3)</div>
+            <div class="ntb-stats-grid">
+              <div class="ntb-stat-item total">
+                <span class="ntb-stat-num" id="ntbStatTotal">0</span>
+                <span class="ntb-stat-label">Total Usaha</span>
+              </div>
+              <div class="ntb-stat-item valid">
+                <span class="ntb-stat-num" id="ntbStatValid">0</span>
+                <span class="ntb-stat-label">Status #0 (Wajar)</span>
+              </div>
+              <div class="ntb-stat-item anomali">
+                <span class="ntb-stat-num" id="ntbStatAnomali">0</span>
+                <span class="ntb-stat-label">Status #1 (Imputasi)</span>
+              </div>
+            </div>
+            <div class="ntb-actions-row">
+              <button id="btnDownloadNtbExcel" class="btn-template btn-ntb-excel" type="button" disabled>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Unduh Hasil Validasi (.xlsx 3-Sheet)
+              </button>
+            </div>
+          </div>
+
+          <div class="ntb-filter-wrap">
+            <span class="ntb-filter-label">Muat ke Antrian Eksekusi Bot:</span>
+            <div class="ntb-filter-buttons">
+              <button id="btnNtbLoadAll" class="btn-filter-ntb active" type="button" disabled>Semua (<span id="ntbCountAll">0</span>)</button>
+              <button id="btnNtbLoadOnly1" class="btn-filter-ntb btn-ntb-anomali" type="button" disabled>Hanya #1 (<span id="ntbCount1">0</span>)</button>
+              <button id="btnNtbLoadOnly0" class="btn-filter-ntb btn-ntb-valid" type="button" disabled>Hanya #0 (<span id="ntbCount0">0</span>)</button>
+            </div>
+          </div>
+          <p class="ntb-note">
+            <b>Status #0 (Sesuai Batas Wajar):</b> Diberi catatan konfirmasi wajar pada 27.a tanpa ubah angka, lalu Kirim & Approve.<br>
+            <b>Status #1 (Anomali / Perlu Imputasi):</b> Nilai variabel r26c/r26d/r26b/r27a diubah otomatis via API ke titik tengah wajar, diberi catatan #1, lalu Kirim & Approve.
+          </p>
         </div>
 
         <div class="config-grid">
@@ -335,6 +381,7 @@
 
   <!-- Scripts -->
   <script src="../lib/xlsx.full.min.js"></script>
+  <script src="../lib/ntb_validator.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

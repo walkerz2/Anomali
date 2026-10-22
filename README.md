@@ -1,12 +1,13 @@
 # TUNTAS SE2026 - Tracking dan Tindak Lanjut Anomali Sensus
 
-## Tiga Menu Utama
+## Empat Menu Utama
 
-| Menu | Kapan dipakai | Template | Yang dilakukan bot |
+| Menu | Kapan dipakai | Template / Sumber File | Yang dilakukan bot |
 |---|---|---|---|
-| **#DC_00 · Tanpa Perubahan** | Anomali apa pun yang sudah sesuai | `Template_TUNTAS_DC0.xlsx` (link_fasih_sm) | Catatan #DC_00 di nilai produksi (27.a/31.a/UB 23.a), khusus **27.a**, **atau** 13.g Kode KBLI → konfirmasi anomali → Kirim → Approve (klik "Kembali ke Review" lalu tombol ✓ Approve di toolbar kanan) |
-| **#DC_01 · Ganti KBLI** | KBLI salah dan harus diganti | `Template_TUNTAS_DC1_KBLI.xlsx` (link_fasih_sm, kbli_awal, kbli_tujuan) | Cari unit usaha dengan 13.g = kbli_awal → pilih radio kbli_tujuan → catatan #DC_01 di 13.g (atau di 27.a / Nilai Produksi) → konfirmasi anomali → Kirim → Approve |
+| **#DC_00 · Tanpa Perubahan** | Anomali apa pun yang sudah sesuai batas wajar | `Template_TUNTAS_DC0.xlsx` (link_fasih_sm) | Catatan #DC_00 di nilai produksi (27.a/31.a/UB 23.a), khusus **27.a**, **atau** 13.g Kode KBLI → konfirmasi anomali → Kirim → Approve |
+| **#DC_01 · Ganti KBLI** | KBLI salah dan harus diganti | `Template_TUNTAS_DC1_KBLI.xlsx` (link_fasih_sm, kbli_awal, kbli_tujuan) | Cari unit usaha dengan 13.g = kbli_awal → pilih radio kbli_tujuan → catatan #DC_01 di 13.g → konfirmasi anomali → Kirim → Approve |
 | **API · Ubah Variabel** | Mengubah isian variabel lain secara massal | `Template_TUNTAS_API_Variabel.xlsx` (link_fasih_sm, kolom variabel) | Ubah nilai variabel via API FASIH → auto backup → buka form & Kirim (batal bila ada GALAT) → Approve |
+| **NTB · Validasi & Imputasi** | Validasi & perbaikan anomali Rasio NTB (Flag 3) | File ekspor **PANTAU BPS** (`.xlsx` / `.xls`) | Menganalisis KBLI A–V & rasio riil → memisahkan **#0 (Wajar)** vs **#1 (Perlu Imputasi)** → menghitung nominal perbaikan presisi → ekspor Excel 3-sheet & otomatis muat ke antrian eksekusi |
 
 - Link `/app/assignment-detail/<id>` langsung dibuka sebagai `/app/assignment/<ID Periode Survei>/<id>/edit` (ID periode diatur di popup).
 - Pengaman: dokumen **tidak dikirim** bila target catatan / unit usaha / pilihan KBLI tujuan tidak ditemukan.
@@ -33,6 +34,45 @@ Alurnya seperti #DC_00/#DC_01, tetapi variabelnya bebas diubah sesuai dataKey fo
 - **Uji coba (dry run)** aktif secara bawaan: menampilkan perubahan tanpa menyimpan.
 - Saat jalan sungguhan: backup otomatis dibuat (`.json`) → simpan lewat API → form dibuka ulang → Kirim (dibatalkan bila FASIH menampilkan GALAT) → Approve.
 - Tombol **Backup** / **Restore** untuk mengunduh dan mengembalikan data awal; tombol **Cari dataKey** untuk melihat nama variabel di dokumen yang sedang dibuka.
+
+
+
+## Menu Keempat · NTB Validasi & Imputasi (Flag 3)
+
+Fitur ini mengintegrasikan kecerdasan validasi **Rasio Nilai Tambah Bruto (NTB Flag 3)** secara langsung di dalam browser (100% *client-side*, tanpa memerlukan Python atau server tambahan):
+
+1. **Upload File Mentah PANTAU BPS**:
+   - Cukup unduh daftar anomali NTB Flag 3 dari PANTAU BPS (format `.xlsx` atau `.xls`), lalu tarik/pilih file di menu **NTB · Validasi Rasio**.
+   - Sistem membaca otomatis kolom: `Nama Usaha`, `Total Pengeluaran`, `Pendapatan Barang & Jasa`, `Pendapatan Lainnya`, `Total Aset`, dan `Link Edit FASIH` / `Assignment ID`.
+
+2. **Kalkulasi Mandiri & Diagnosa Cerdas**:
+   - **Kalkulasi Riil**:
+     $\text{Total Pendapatan} = \text{Pendapatan B\&J} + \text{Pendapatan Lainnya}$
+     $\text{NTB Riil} = \text{Total Pendapatan} - \text{Total Pengeluaran}$
+     $\text{Rasio NTB (\%)} = \left( \frac{\text{NTB Riil}}{\text{Total Pendapatan}} \right) \times 100$
+   - **Inferensi Kategori KBLI**: Menganalisis kata kunci nama usaha dan mencocokkannya ke 22 kategori sektor ekonomi (A sampai V).
+   - **Penentuan Status**:
+     - **Status #0 (Sesuai Batas Wajar)**: Jika rasio riil berada di dalam rentang wajar resmi BPS (misal Perdagangan Kategori G: 7% s.d. 60%).
+     - **Status #1 (Anomali / Perlu Imputasi)**: Jika rasio di luar batas wajar (terlalu tinggi / terlalu rendah) atau pengeluaran > pendapatan.
+
+3. **Rekomendasi Imputasi Variabel Presisi**:
+   - Untuk **Status #1**, sistem menghitung nilai target agar rasio berada tepat di titik tengah wajar (target median):
+     - **Sektor G (Perdagangan) & K (Pulsa/Voucher)**: Variabel `r26c` (Biaya Pembelian Barang Dagangan)
+     - **Sektor H (Transportasi) & Sektor Jasa (B, D, E, F, J, L–V)**: Variabel `r26d` (Biaya Operasional)
+     - **Sektor C (Industri), A (Pertanian), I (Kuliner/Makan Minum)**: Variabel `r26b` (Bahan Baku / Bibit / Makanan)
+     - **Pendapatan = 0 / Kosong**: Variabel `r27a` (Nilai Pendapatan Barang dan Jasa)
+
+4. **Ekspor Excel 3-Sheet Otomatis**:
+   - Klik **Unduh Hasil Validasi (.xlsx 3-Sheet)** untuk mendapatkan:
+     - **Sheet 1 (Master Validasi NTB)**: Seluruh data lengkap dengan NTB riil, diagnosa, dan rekomendasi perbaikan.
+     - **Sheet 2 (Panduan Imputasi #1)**: Daftar usaha anomali beserta instruksi petugas lapangan.
+     - **Sheet 3 (Template API Siap Pakai)**: Format kolom siap pakai yang langsung cocok dengan menu API Ubah Variabel.
+
+5. **Integrasi Antrian Bot FASIH**:
+   - Anda dapat memilih data yang ingin dieksekusi oleh bot melalui tombol filter:
+     - **Semua**: Memproses seluruh baris (Status #1 via API ubah variabel + submit + approve; Status #0 via catatan konfirmasi #0 pada 27.a + submit + approve).
+     - **Hanya #1**: Hanya memproses unit usaha anomali yang perlu perbaikan nilai angka via API.
+     - **Hanya #0**: Hanya memproses unit usaha yang sudah sesuai batas wajar untuk diberi catatan konfirmasi.
 
 ## 📋 Alur Kerja Otomasi (Workflow)
 
@@ -143,6 +183,7 @@ Anomali2/
 ├── manifest.json            # Konfigurasi Chrome Extension Manifest V3
 ├── icons/                   # Ikon ekstensi (16px, 48px, 128px)
 ├── lib/
+│   ├── ntb_validator.js     # Mesin validasi & imputasi rasio NTB (client-side)
 │   └── xlsx.full.min.js     # SheetJS untuk membaca file Excel secara lokal & offline
 ├── popup/
 │   ├── popup.html           # Antarmuka kontrol pengguna

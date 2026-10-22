@@ -80,6 +80,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnApiRestore = $('btnApiRestore');
   const btnApiFindKey = $('btnApiFindKey');
 
+  // Elemen NTB
+  const btnDownloadNtbExcel = $('btnDownloadNtbExcel');
+  const ntbStatTotal = $('ntbStatTotal');
+  const ntbStatValid = $('ntbStatValid');
+  const ntbStatAnomali = $('ntbStatAnomali');
+  const btnNtbLoadAll = $('btnNtbLoadAll');
+  const btnNtbLoadOnly1 = $('btnNtbLoadOnly1');
+  const btnNtbLoadOnly0 = $('btnNtbLoadOnly0');
+  const ntbCountAll = $('ntbCountAll');
+  const ntbCount1 = $('ntbCount1');
+  const ntbCount0 = $('ntbCount0');
+
   const MODE_INFO = {
     DC0: {
       desc: 'Konfirmasi anomali <b>tanpa mengubah isian</b>: bot memberi catatan, menyalakan konfirmasi anomali, lalu Kirim (& Approve). Cocok untuk anomali apa pun.',
@@ -98,16 +110,81 @@ document.addEventListener('DOMContentLoaded', async () => {
       upload: 'Kolom wajib: <code>link_fasih_sm</code> + kolom variabel dari template ②',
       template: 'Template_TUNTAS_API_Variabel.xlsx',
       templateLabel: 'Unduh Template Kosong'
+    },
+    NTB: {
+      desc: 'Validasi & Imputasi <b>Rasio NTB (Flag 3)</b>: Upload file mentah dari PANTAU BPS. Sistem otomatis menghitung NTB & rasio riil, memetakan kategori KBLI (A–V), menentukan status <b>#0 (Wajar)</b> vs <b>#1 (Anomali)</b>, serta memberikan rekomendasi variabel & nominal imputasi presisi.',
+      upload: 'File ekspor PANTAU BPS: <code>Nama Usaha</code>, <code>Pengeluaran</code>, <code>Pendapatan B&J</code>, <code>Id Assignment</code>',
+      template: 'Template_TUNTAS_NTB_Pantau.xlsx',
+      templateLabel: 'Unduh Format Kolom NTB'
     }
   };
-  const MODE_LABEL = { DC0: '#DC_00', DC1: '#DC_01', API: 'API' };
-  const MODE_TAG = { DC0: 'tag-dc0', DC1: 'tag-dc1', API: 'tag-api' };
+  const MODE_LABEL = { DC0: '#DC_00', DC1: '#DC_01', API: 'API', NTB: 'NTB' };
+  const MODE_TAG = { DC0: 'tag-dc0', DC1: 'tag-dc1', API: 'tag-api', NTB: 'tag-ntb' };
 
   let activeMode = 'DC0';   // menu yang sedang dipilih
   let queueMode = null;     // mode file yang sedang dimuat
   let allRows = [];         // seluruh baris dari file Excel (sebelum dipotong rentang baris)
   let queue = [];
   let runnerStatus = 'IDLE';
+  let ntbValidationResult = null; // Hasil validasi dataset NTB ({ items, summary })
+  let ntbFilterMode = 'ALL';      // 'ALL' | 'ONLY_1' | 'ONLY_0'
+
+  function updateNtbSummaryUI() {
+    if (!ntbValidationResult || !ntbValidationResult.summary) {
+      if (ntbStatTotal) ntbStatTotal.textContent = '0';
+      if (ntbStatValid) ntbStatValid.textContent = '0';
+      if (ntbStatAnomali) ntbStatAnomali.textContent = '0';
+      if (ntbCountAll) ntbCountAll.textContent = '0';
+      if (ntbCount1) ntbCount1.textContent = '0';
+      if (ntbCount0) ntbCount0.textContent = '0';
+      if (btnDownloadNtbExcel) btnDownloadNtbExcel.disabled = true;
+      if (btnNtbLoadAll) btnNtbLoadAll.disabled = true;
+      if (btnNtbLoadOnly1) btnNtbLoadOnly1.disabled = true;
+      if (btnNtbLoadOnly0) btnNtbLoadOnly0.disabled = true;
+      return;
+    }
+    const s = ntbValidationResult.summary;
+    if (ntbStatTotal) ntbStatTotal.textContent = String(s.total);
+    if (ntbStatValid) ntbStatValid.textContent = `${s.status0} (${s.pctValid}%)`;
+    if (ntbStatAnomali) ntbStatAnomali.textContent = `${s.status1} (${s.pctAnomali}%)`;
+    if (ntbCountAll) ntbCountAll.textContent = String(s.total);
+    if (ntbCount1) ntbCount1.textContent = String(s.status1);
+    if (ntbCount0) ntbCount0.textContent = String(s.status0);
+    if (btnDownloadNtbExcel) btnDownloadNtbExcel.disabled = (s.total === 0);
+    if (btnNtbLoadAll) btnNtbLoadAll.disabled = (s.total === 0);
+    if (btnNtbLoadOnly1) btnNtbLoadOnly1.disabled = (s.status1 === 0);
+    if (btnNtbLoadOnly0) btnNtbLoadOnly0.disabled = (s.status0 === 0);
+
+    [btnNtbLoadAll, btnNtbLoadOnly1, btnNtbLoadOnly0].forEach(b => b && b.classList.remove('active'));
+    if (ntbFilterMode === 'ONLY_1' && btnNtbLoadOnly1) btnNtbLoadOnly1.classList.add('active');
+    else if (ntbFilterMode === 'ONLY_0' && btnNtbLoadOnly0) btnNtbLoadOnly0.classList.add('active');
+    else if (btnNtbLoadAll) btnNtbLoadAll.classList.add('active');
+  }
+
+  function applyNtbFilter(filter) {
+    if (!ntbValidationResult || !ntbValidationResult.items || !ntbValidationResult.items.length) return;
+    ntbFilterMode = filter;
+    updateNtbSummaryUI();
+    const converted = NTB_VALIDATOR.convertNtbToQueue(ntbValidationResult.items, filter);
+    allRows = converted;
+    queue = filterRowsByRange(allRows);
+    queueMode = 'NTB';
+    chrome.storage.local.set({
+      fasihAllRows: allRows,
+      fasihQueue: queue,
+      queueMode,
+      ntbValidationResult,
+      ntbFilterMode
+    });
+    setRunnerStatus('IDLE');
+    renderQueueTable();
+    updateProgressUI();
+    const invalid = queue.filter(q => q.status === 'INVALID').length;
+    const { startRow, endRow, isFiltered } = getRowRangeBounds(allRows.length);
+    const rangeLabel = isFiltered ? ` (Baris ${startRow}–${endRow} dari ${allRows.length})` : '';
+    const labelFilter = filter === 'ONLY_1' ? 'Hanya Status #1 (Imputasi)' : (filter === 'ONLY_0' ? 'Hanya Status #0 (Wajar)' : 'Semua Status (#0 & #1)');
+    liveStatusText.textContent = `Antrian NTB [${labelFilter}]${rangeLabel}: ${queue.length - invalid} baris siap diproses.` + (invalid ? ` (${invalid} link tidak valid)` : '');
+  }
 
   // ---------- Menu ----------
   function setActiveMode(mode, { silent = false } = {}) {
@@ -166,7 +243,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     queue = [];
     queueMode = null;
     excelInput.value = '';
-    await chrome.storage.local.remove(['fasihAllRows', 'fasihQueue', 'excelFileName', 'queueMode']);
+    ntbValidationResult = null;
+    ntbFilterMode = 'ALL';
+    updateNtbSummaryUI();
+    await chrome.storage.local.remove(['fasihAllRows', 'fasihQueue', 'excelFileName', 'queueMode', 'ntbValidationResult', 'ntbFilterMode']);
     await chrome.storage.local.set({
       runnerState: { status: 'IDLE', currentIndex: 0, activeTabId: null, consecutiveFailures: 0, options: getOptions() }
     });
@@ -353,6 +433,41 @@ document.addEventListener('DOMContentLoaded', async () => {
         alert('Sheet data kosong.');
         return;
       }
+
+      if (activeMode === 'NTB') {
+        const defaultPeriodeId = (periodeInput && periodeInput.value.trim()) || 'fd68e454-ba45-4b85-8205-f3bf777ded24';
+        ntbValidationResult = NTB_VALIDATOR.validateNtbDataset(rows, defaultPeriodeId);
+        if (!ntbValidationResult.items || !ntbValidationResult.items.length) {
+          alert('Tidak ada baris data valid yang terbaca dari file PANTAU.');
+          return;
+        }
+        ntbFilterMode = 'ALL';
+        updateNtbSummaryUI();
+        queueMode = 'NTB';
+        const converted = NTB_VALIDATOR.convertNtbToQueue(ntbValidationResult.items, ntbFilterMode);
+        allRows = converted;
+        queue = filterRowsByRange(allRows);
+        await chrome.storage.local.set({
+          fasihAllRows: allRows,
+          fasihQueue: queue,
+          excelFileName: file.name,
+          queueMode,
+          ntbValidationResult,
+          ntbFilterMode,
+          runnerState: { status: 'IDLE', currentIndex: 0, activeTabId: null, consecutiveFailures: 0, options: getOptions() }
+        });
+        showFileInfo(file.name);
+        setRunnerStatus('IDLE');
+        renderQueueTable();
+        updateProgressUI();
+        const invalid = queue.filter(q => q.status === 'INVALID').length;
+        const { startRow, endRow, isFiltered } = getRowRangeBounds(allRows.length);
+        const rangeLabel = isFiltered ? ` (Baris ${startRow}–${endRow} dari ${allRows.length})` : '';
+        const s = ntbValidationResult.summary;
+        liveStatusText.textContent = `Validasi NTB selesai${rangeLabel}: ${s.total} usaha (${s.status0} wajar #0, ${s.status1} imputasi #1).` + (invalid ? ` ${invalid} link tidak valid.` : '');
+        return;
+      }
+
       const parsed = parseRows(rows, activeMode);
       if (!parsed.length) {
         alert('Tidak ada baris data.');
@@ -402,7 +517,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return {
       mode: queueMode || activeMode,
       commentText: commentInput.value.trim() || '#DC_00',
-      dc0Target: (dc0TargetSelect && dc0TargetSelect.value) || 'nilai',
+      dc0Target: (dc0TargetSelect && dc0TargetSelect.value === '27a' ? 'nilai' : ((dc0TargetSelect && dc0TargetSelect.value) || 'nilai')),
       dc1Target: (dc1TargetSelect && dc1TargetSelect.value) || 'kbli',
       catatanKbliDiganti: catatanDigantiInput.value.trim() || '#DC_01',
       periodeId: periodeInput.value.trim(),
@@ -597,6 +712,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // ---------- Event Listener Menu NTB ----------
+  if (btnDownloadNtbExcel) {
+    btnDownloadNtbExcel.addEventListener('click', () => {
+      if (!ntbValidationResult || !ntbValidationResult.items || !ntbValidationResult.items.length) {
+        alert('Belum ada data validasi NTB.');
+        return;
+      }
+      try {
+        const wbOut = NTB_VALIDATOR.generateNtbWorkbook(ntbValidationResult.items, XLSX);
+        const base = (fileName.textContent && fileName.textContent !== '-') ? fileName.textContent.replace(/\.[^/.]+$/, '') : 'Validasi_NTB_Flag3';
+        const now = new Date(), pad = (n) => String(n).padStart(2, '0');
+        const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+        XLSX.writeFile(wbOut, `Hasil_Validasi_NTB_${base}_${stamp}.xlsx`);
+        liveStatusText.textContent = 'File Excel Hasil Validasi NTB (3-Sheet) berhasil diunduh.';
+      } catch (err) {
+        alert('Gagal membuat Excel: ' + err.message);
+      }
+    });
+  }
+
+  if (btnNtbLoadAll) btnNtbLoadAll.addEventListener('click', () => applyNtbFilter('ALL'));
+  if (btnNtbLoadOnly1) btnNtbLoadOnly1.addEventListener('click', () => applyNtbFilter('ONLY_1'));
+  if (btnNtbLoadOnly0) btnNtbLoadOnly0.addEventListener('click', () => applyNtbFilter('ONLY_0'));
+
   if (btnTestWebhook) {
     btnTestWebhook.addEventListener('click', () => {
       const url = (webhookUrlInput && webhookUrlInput.value.trim()) || DEFAULT_WEBHOOK_URL;
@@ -651,6 +790,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (checkApiDryRun && checkApiDryRun.checked) {
         liveStatusText.textContent = 'Uji coba: membaca dokumen & menghitung perubahan (tidak menyimpan)...';
       } else if (!confirm(`SIMPAN perubahan lewat API untuk ${nJalan} dokumen?\n\n• Backup otomatis dibuat sebelum menyimpan.\n• ${checkAutoApprove.checked ? 'Setelah itu form dibuka & dikirim (dibatalkan bila ada GALAT), lalu di-Approve.' : 'Setelah itu form dibuka & dikirim (dibatalkan bila ada GALAT).'}\n\nPastikan hasil uji coba sudah diperiksa.`)) {
+        return;
+      }
+    } else if (queueMode === 'NTB') {
+      const n1 = queue.filter(q => (q.status === 'PENDING' || q.status === 'DRYRUN') && q.mode === 'API').length;
+      const n0 = queue.filter(q => (q.status === 'PENDING' || q.status === 'DRYRUN') && q.mode === 'DC0').length;
+      if (!confirm(`Mulai eksekusi Validasi NTB untuk ${nJalan} dokumen?\n\n• ${n1} usaha Status #1 (Anomali) → Ubah variabel lewat API, Kirim & Approve\n• ${n0} usaha Status #0 (Wajar) → Beri catatan konfirmasi 27.a tanpa ubah angka, Kirim & Approve`)) {
         return;
       }
     } else if (checkAutoApprove.checked &&
@@ -731,7 +876,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Test di tab aktif: dijalankan via background agar tetap jalan lintas redirect SSO Eksternal
   btnTestActiveTab.addEventListener('click', async () => {
-    if (activeMode === 'API') {
+    if (activeMode === 'API' || activeMode === 'NTB') {
       alert('Menu Ubah Variabel diuji lewat antrian: upload Excel 1 baris, biarkan "Uji coba (dry run)" tercentang, lalu Mulai.');
       return;
     }
@@ -894,7 +1039,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       const rowsOut = queue.map((item, idx) => {
         const rowNum = item.excelRowNum || (idx + 1);
         const base = item.originalRow ? { No_Baris_Excel: rowNum, PC: pcVal, ...item.originalRow } : { No_Baris_Excel: rowNum, PC: pcVal, link_fasih_sm: item.link_fasih_sm };
-        base.menu = item.mode === 'DC1' ? '#DC_01' : (item.mode === 'API' ? 'API' : '#DC_00');
+        base.menu = item.mode === 'DC1' ? '#DC_01' : (item.mode === 'API' ? (item.ntbInfo ? 'NTB_API' : 'API') : (item.ntbInfo ? 'NTB_DC0' : '#DC_00'));
+        if (item.ntbInfo) {
+          base.Status_NTB = item.ntbInfo.status;
+          base.Kategori_KBLI = item.ntbInfo.kategori;
+          base.Rasio_NTB_Riil = item.ntbInfo.rasio || item.ntbInfo.rasioLama;
+          if (item.ntbInfo.varUbah) {
+            base.Variabel_Imputasi = item.ntbInfo.varUbah;
+            base.Nominal_Baru = item.ntbInfo.valBaru;
+            base.Estimasi_Rasio_Baru = item.ntbInfo.rasioBaru;
+          }
+        }
         base.status = statusText(item);
         base.keterangan = item.error || (item.status === 'SUCCESS' ? 'Sukses' : '');
         return base;
@@ -945,6 +1100,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (/GALAT|WAJIB|BELUM DIISI|VALIDASI|ANOMALI/.test(e)) return ['status-galat', 'Galat'];
       return ['status-failed', 'Gagal'];
     }
+    if (item.status === 'PENDING' && item.ntbInfo) {
+      if (item.ntbInfo.status === '#1') return ['status-ntb-1', 'Pending #1'];
+      return ['status-ntb-0', 'Pending #0'];
+    }
     return ['status-pending', 'Pending'];
   }
 
@@ -967,10 +1126,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         : (item.mode === 'API'
           ? `<div class="kbli-line">${escapeHtml(apiKeys.slice(0, 4).map(k => `${k}=${item.apiValues[k]}`).join(', '))}${apiKeys.length > 4 ? ` +${apiKeys.length - 4}` : ''}${apiRem.length ? ` · ${apiRem.length} catatan` : ''}</div>`
           : '');
+      const ntbLine = item.ntbInfo
+        ? (item.ntbInfo.status === '#1'
+            ? `<div class="ntb-line ntb-line-anomali">⚠️ <b>#1 Imputasi:</b> Ubah <code>${escapeHtml(item.ntbInfo.varUbah || '')}</code> jadi <b>${NTB_VALIDATOR.formatRp(item.ntbInfo.valBaru)}</b> (Rasio: ${item.ntbInfo.rasioLama}% → ${item.ntbInfo.rasioBaru}%)</div>`
+            : `<div class="ntb-line ntb-line-valid">✅ <b>#0 Wajar:</b> Kategori ${escapeHtml(item.ntbInfo.kategori || '')} · Rasio Riil: <b>${item.ntbInfo.rasio}%</b></div>`
+          )
+        : '';
       const note = item.error ? `<div class="row-note">${escapeHtml(item.error)}</div>` : '';
       return `<tr>
           <td>${rowNum}</td>
-          <td title="${escapeHtml(item.link_fasih_sm)}"><strong>${escapeHtml(item.nama_usaha)}</strong>${sub}${note}</td>
+          <td title="${escapeHtml(item.link_fasih_sm)}"><strong>${escapeHtml(item.nama_usaha)}</strong>${sub}${ntbLine}${note}</td>
           <td><span class="status-badge-table ${cls}">${label}</span></td>
         </tr>`;
     }).join('');
@@ -993,12 +1158,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ---------- Muat state ----------
   async function loadSavedState() {
-    const data = await chrome.storage.local.get(['fasihAllRows', 'fasihQueue', 'runnerState', 'excelFileName', 'runnerOptions', 'queueMode', 'activeMode']);
+    const data = await chrome.storage.local.get(['fasihAllRows', 'fasihQueue', 'runnerState', 'excelFileName', 'runnerOptions', 'queueMode', 'activeMode', 'ntbValidationResult', 'ntbFilterMode']);
     const o = data.runnerOptions || {};
     // Nilai tersimpan versi sebelumnya (#DC_0 / #DC_1) tidak dipulihkan; default resmi #DC_00 / #DC_01
     if (o.commentText && o.commentText !== '#DC_0') commentInput.value = o.commentText;
-    if (o.dc0Target && dc0TargetSelect) dc0TargetSelect.value = o.dc0Target;
-    if (o.dc1Target && dc1TargetSelect) dc1TargetSelect.value = o.dc1Target;
+    if (o.dc0Target && dc0TargetSelect) dc0TargetSelect.value = (o.dc0Target === '27a' ? 'nilai' : o.dc0Target);
+    if (o.dc1Target && dc1TargetSelect) dc1TargetSelect.value = (o.dc1Target === '27a' ? 'nilai' : o.dc1Target);
     if (o.catatanKbliDiganti && o.catatanKbliDiganti !== '#DC_1') catatanDigantiInput.value = o.catatanKbliDiganti;
     if (o.periodeId) periodeInput.value = o.periodeId;
     if (o.stepDelay) delayInput.value = o.stepDelay / 1000;
@@ -1033,7 +1198,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
       if (fixed) await chrome.storage.local.set({ fasihQueue: queue });
-      queueMode = data.queueMode || (queue.some(q => q.mode === 'API') ? 'API' : (queue.some(q => q.kbliTask) ? 'DC1' : 'DC0'));
+      if (data.ntbValidationResult) {
+        ntbValidationResult = data.ntbValidationResult;
+        ntbFilterMode = data.ntbFilterMode || 'ALL';
+        updateNtbSummaryUI();
+      }
+      queueMode = data.queueMode || (queue.some(q => q.ntbInfo) ? 'NTB' : (queue.some(q => q.mode === 'API') ? 'API' : (queue.some(q => q.kbliTask) ? 'DC1' : 'DC0')));
       if (o.apiDryRun !== undefined && checkApiDryRun) checkApiDryRun.checked = o.apiDryRun;
       refreshBackupCount();
       showFileInfo(data.excelFileName || 'File Excel');

@@ -1726,16 +1726,21 @@
     }
 
     if (options.dc0Target === '27a') {
-      list.push({
-        code: '27.a',
-        label: '27. a. Nilai produksi/pendapatan/penjualan barang dan jasa',
-        finder: findQuestion27aElement,
-        effectiveComment: mainCommentNonUB,
-        isSecondary: false,
-        exactCodeOnly: true,
-        condition: 'DC0_27A'
-      });
-      return list;
+      const q27a = findQuestion27aElement();
+      if (q27a) {
+        list.push({
+          code: '27.a',
+          label: '27. a. Nilai produksi/pendapatan/penjualan barang dan jasa',
+          finder: findQuestion27aElement,
+          effectiveComment: mainCommentNonUB,
+          isSecondary: false,
+          exactCodeOnly: true,
+          condition: 'DC0_27A'
+        });
+        return list;
+      }
+      // Jika 27.a tidak ada (mis. UB 23.a atau usaha tahun > 2025 dengan 31.a),
+      // otomatis lanjut ke deteksi cerdas di bawah agar proses tidak gagal!
     }
 
     // KONDISI 1: Kuisioner SE2026 - UB
