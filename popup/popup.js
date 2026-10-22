@@ -795,7 +795,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else if (queueMode === 'NTB') {
       const n1 = queue.filter(q => (q.status === 'PENDING' || q.status === 'DRYRUN') && q.mode === 'API').length;
       const n0 = queue.filter(q => (q.status === 'PENDING' || q.status === 'DRYRUN') && q.mode === 'DC0').length;
-      if (!confirm(`Mulai eksekusi Validasi NTB untuk ${nJalan} dokumen?\n\n• ${n1} usaha Status #1 (Anomali) → Ubah variabel lewat API, Kirim & Approve\n• ${n0} usaha Status #0 (Wajar) → Beri catatan konfirmasi 27.a tanpa ubah angka, Kirim & Approve`)) {
+      if (!confirm(`Mulai eksekusi Validasi NTB untuk ${nJalan} dokumen?\n\n• ${n1} usaha Status #1 (Anomali) → Ubah variabel & beri catatan #1 via API, Kirim & Approve\n• ${n0} usaha Status #0 (Wajar) → Beri catatan #0 pada nilai produksi, Kirim & Approve`)) {
         return;
       }
     } else if (checkAutoApprove.checked &&
