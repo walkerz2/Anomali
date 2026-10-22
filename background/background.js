@@ -114,6 +114,10 @@ function classifyErrorCategory(errorMsg = '') {
     upper.includes('SERVER_DOWN') ||
     upper.includes('BAD GATEWAY') ||
     upper.includes('SERVICE UNAVAILABLE') ||
+    upper.includes('500') ||
+    upper.includes('502') ||
+    upper.includes('503') ||
+    upper.includes('504') ||
     upper.includes('ERR_CONNECTION') ||
     upper.includes('TIDAK MERESPONS')
   ) {
@@ -124,11 +128,15 @@ function classifyErrorCategory(errorMsg = '') {
     upper.includes('CATATAN') ||
     upper.includes('MODAL CATATAN') ||
     upper.includes('PERTANYAAN TARGET') ||
+    upper.includes('TARGET CATATAN') ||
     upper.includes('FORMULIR KUISIONER TIDAK TERBUKA') ||
-    upper.includes('FORMULIR TIDAK TERBUKA')
+    upper.includes('FORMULIR TIDAK TERBUKA') ||
+    upper.includes('FORMULIR TIDAK DAPAT DIBUKA')
   ) {
     return 'GAGAL_REMARK';
   }
+  if (upper.includes('REVOKE')) return 'GAGAL_REVOKE';
+  if (upper.includes('API:') || upper.includes('API')) return 'GAGAL_API';
   if (upper.includes('KBLI')) return 'GAGAL_KBLI';
   if (upper.includes('APPROVE')) return 'GAGAL_APPROVE';
   if (upper.includes('TERPUTUS') || upper.includes('DISCONNECTED')) return 'TERPUTUS';
@@ -145,6 +153,120 @@ function classifyErrorCategory(errorMsg = '') {
   return 'ERROR_LAINNYA';
 }
 
+/**
+ * Memeriksa apakah suatu error memenuhi syarat untuk dikirimkan ke Webhook n8n/Telegram.
+ * Sesuai kebutuhan: Notifikasi HANYA dikirim jika:
+ * 1. Ekstensinya tidak jalan (Server BPS down, 500/502/503/504, timeout loading >35s/70s, koneksi terputus, gagal login SSO, circuit breaker triggered, formulir kuisioner tidak terbuka).
+ * 2. Kandas dalam proses pemberian remark (pertanyaan target tidak ditemukan, modal catatan gagal dibuka/disimpan, KBLI tidak ditemukan, gagal revoke untuk isi catatan, API gagal menyimpan nilai/catatan, galat penolakan kirim formulir).
+ *
+ * Diabaikan (TIDAK kirim webhook):
+ * - Catatan sudah tersimpan / terkirim tetapi Approve gagal (APPROVE GAGAL).
+ * - Remark sudah ada sebelumnya (alreadyHasRemark / skip wajar).
+ * - Link URL tidak valid / id assignment tidak terbaca dari file Excel.
+ * - Diberhentikan atau dijeda manual oleh pengguna.
+ */
+function shouldSendWebhookNotification(event, errorMsg = '') {
+  if (event === 'TEST_WEBHOOK') return true;
+  if (event === 'CIRCUIT_BREAKER_TRIGGERED') return true;
+
+  const raw = String(errorMsg || '').trim();
+  if (!raw) return false;
+  const upper = raw.toUpperCase();
+
+  // 1. DAFTAR PENGECUALIAN (Strict Exclusions - Tidak boleh memicu Webhook)
+  // a. Diberhentikan atau dijeda manual oleh pengguna
+  if (
+    upper.includes('DIBERHENTIKAN') ||
+    upper.includes('STOPPED') ||
+    upper.includes('DIJEDA') ||
+    upper.includes('PAUSED')
+  ) {
+    return false;
+  }
+
+  // b. Dokumen sudah terkirim / catatan sudah tersimpan, tetapi langkah Approve gagal atau tombol Approve tidak muncul
+  if (
+    upper.includes('APPROVE GAGAL') ||
+    upper.includes('GAGAL APPROVE') ||
+    upper.includes('APPROVE TIDAK') ||
+    upper.includes('TOMBOL APPROVE') ||
+    (upper.includes('APPROVE') && (upper.includes('TERKIRIM') || upper.includes('CATATAN TERSIMPAN') || upper.includes('SUKSES') || upper.includes('DILEWATI')))
+  ) {
+    return false;
+  }
+
+  // c. Remark sudah ada sebelumnya (Skip wajar)
+  if (
+    upper.includes('REMARK SUDAH ADA') ||
+    upper.includes('SUDAH MEMILIKI REMARK') ||
+    (upper.includes('SUDAH ADA') && !upper.includes('FORMULIR')) ||
+    (upper.includes('DILEWATI') && !upper.includes('FORMULIR'))
+  ) {
+    return false;
+  }
+
+  // d. Link URL tidak valid atau ID Assignment tidak terbaca (Kesalahan baris data Excel pengguna)
+  if (
+    upper.includes('LINK URL TIDAK VALID') ||
+    upper.includes('URL TIDAK VALID') ||
+    upper.includes('ASSIGNMENT_ID TIDAK TERBACA') ||
+    upper.includes('LINK TIDAK VALID')
+  ) {
+    return false;
+  }
+
+  // 2. KRITERIA 1: EKSTENSI TIDAK JALAN (Server Down, Timeout, Tab Crash, SSO Login Gagal, Formulir Macet, dsb)
+  const isExtensionNotRunning =
+    upper.includes('CIRCUIT BREAKER') ||
+    upper.includes('TIMEOUT') ||
+    upper.includes('SERVER_DOWN') ||
+    upper.includes('BAD GATEWAY') ||
+    upper.includes('SERVICE UNAVAILABLE') ||
+    upper.includes('500') ||
+    upper.includes('502') ||
+    upper.includes('503') ||
+    upper.includes('504') ||
+    upper.includes('404 NOT FOUND') ||
+    upper.includes('ERR_CONNECTION') ||
+    upper.includes('TIDAK MERESPONS') ||
+    upper.includes('TERPUTUS') ||
+    upper.includes('DISCONNECTED') ||
+    upper.includes('SSO') ||
+    upper.includes('LOGIN') ||
+    upper.includes('FORMULIR KUISIONER TIDAK TERBUKA') ||
+    upper.includes('FORMULIR TIDAK TERBUKA') ||
+    upper.includes('FORMULIR TIDAK DAPAT DIBUKA') ||
+    upper.includes('MESIN API BELUM DIMUAT');
+
+  if (isExtensionNotRunning) {
+    return true;
+  }
+
+  // 3. KRITERIA 2: KANDAS DALAM PROSES PEMBERIAN REMARK
+  const isRemarkProcessFailed =
+    upper.includes('PERTANYAAN TARGET') ||
+    upper.includes('TARGET CATATAN') ||
+    upper.includes('MODAL CATATAN') ||
+    upper.includes('TOMBOL CATATAN') ||
+    upper.includes('GAGAL REMARK') ||
+    upper.includes('GAGAL PEMBERIAN REMARK') ||
+    upper.includes('CATATAN TIDAK DITEMUKAN') ||
+    upper.includes('UNIT USAHA') ||
+    upper.includes('KBLI') ||
+    upper.includes('REVOKE') ||
+    upper.includes('API:') ||
+    upper.includes('GALAT:') ||
+    upper.includes('GALAT') ||
+    upper.includes('ISIAN WAJIB') ||
+    upper.includes('BELUM LENGKAP');
+
+  if (isRemarkProcessFailed) {
+    return true;
+  }
+
+  return false;
+}
+
 // Kirim notifikasi error ke Webhook n8n (mendukung POST JSON & fallback GET query)
 async function sendWebhookErrorNotification({
   event = 'ERROR_NOTIFICATION',
@@ -158,6 +280,12 @@ async function sendWebhookErrorNotification({
     const opts = (runnerState && runnerState.options) || {};
     if (!customUrl && opts.enableWebhook === false) {
       return { ok: false, skipped: true, reason: 'Webhook dinonaktifkan' };
+    }
+
+    // Filter ketat: Kirim HANYA jika ekstensi macet/tidak jalan ATAU kandas dalam proses pemberian remark
+    if (event !== 'TEST_WEBHOOK' && !shouldSendWebhookNotification(event, errorMsg)) {
+      console.log(`[TUNTAS Webhook] Notifikasi dilewati (bukan error kritis / kandas remark): "${errorMsg}"`);
+      return { ok: false, skipped: true, reason: 'Dilewati: bukan error kritis atau kandas remark' };
     }
     const webhookUrl = String(customUrl || opts.webhookUrl || DEFAULT_WEBHOOK_URL).trim();
     if (!webhookUrl || !/^https?:\/\//i.test(webhookUrl)) {
@@ -337,16 +465,18 @@ async function updateItemStatus(index, itemStatus, errorMsg = '') {
       queue
     });
 
-    // Kirim notifikasi ke Webhook setiap kali terjadi kegagalan (FAILED) atau gagal membuka form kuisioner
+    // Kirim notifikasi ke Webhook jika error memenuhi syarat (ekstensi tidak jalan atau kandas proses remark)
     const isFormOpenFailure = itemStatus === 'SKIPPED' && /formulir.*tidak terbuka/i.test(String(errorMsg || ''));
     if (itemStatus === 'FAILED' || isFormOpenFailure) {
-      sendWebhookErrorNotification({
-        event: 'ERROR_NOTIFICATION',
-        index,
-        item: queue[index],
-        totalQueue: queue.length,
-        errorMsg: errorMsg || 'Terjadi kegagalan saat memproses baris antrian.'
-      });
+      if (shouldSendWebhookNotification('ERROR_NOTIFICATION', errorMsg)) {
+        sendWebhookErrorNotification({
+          event: 'ERROR_NOTIFICATION',
+          index,
+          item: queue[index],
+          totalQueue: queue.length,
+          errorMsg: errorMsg || 'Terjadi kegagalan saat memproses baris antrian.'
+        });
+      }
     }
   }
 }
@@ -1861,7 +1991,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           } else if (response.status === 'DONE' && r.skipped && !r.alreadyHasRemark && /formulir.*tidak terbuka/i.test(String(r.reason || ''))) {
             activeErr = r.reason;
           }
-          if (activeErr) {
+          if (activeErr && shouldSendWebhookNotification('ERROR_NOTIFICATION', activeErr)) {
             sendWebhookErrorNotification({
               event: 'ERROR_NOTIFICATION',
               index: null,
