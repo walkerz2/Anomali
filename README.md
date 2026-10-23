@@ -68,11 +68,13 @@ Fitur ini mengintegrasikan kecerdasan validasi **Rasio Nilai Tambah Bruto (NTB F
      - **Sheet 2 (Panduan Imputasi #1)**: Daftar usaha anomali beserta instruksi petugas lapangan.
      - **Sheet 3 (Template API Siap Pakai)**: Format kolom siap pakai yang langsung cocok dengan menu API Ubah Variabel.
 
-5. **Opsi Persiapan Sheet 3 Kustom (Input Mandiri)**:
+5. **Opsi Persiapan Sheet 3 Kustom (Input Mandiri & Multi-Variabel)**:
    - Jika Anda ingin menentukan sendiri variabel perbaikan atau nominal imputasi (bukan dari hitungan otomatis formula ekstensi), Anda dapat mengedit **Sheet 3 (Template API Siap Pakai)** secara mandiri.
+   - **Bebas Mengubah Variabel Apa Saja & Multi-Variabel**: Anda tidak terbatas pada variabel bawaan (`r26b`, `r26c`, `r26d`, atau `r27a`). Anda dapat menambahkan kolom variabel apa saja dari kuesioner FASIH (misal: `r26a` upah pekerja, `r27b` pendapatan sampingan, `r28` modal, dll.), dan Anda bisa mengubah beberapa variabel sekaligus dalam 1 baris usaha.
+   - **Fleksibilitas Nama Sheet**: Pada file terpisah, nama sheet tidak harus `Sheet 3` atau `Template API Siap Pakai` (bisa default `Sheet1`, `Data Perbaikan`, dsb.) karena sistem memindai langsung keberadaan kolom header `link_fasih_sm` atau `assignment_id`.
    - **Deteksi Otomatis**: Saat file Excel yang memiliki sheet Template API Siap Pakai diunggah kembali ke menu NTB, sistem otomatis mendeteksi dan mengaktifkan mode kustom (ditandai dengan badge hijau *Sheet 3 Kustom Terdeteksi*).
    - **Upload File Terpisah**: Disediakan tombol **Unggah Sheet 3 Kustom** jika file Sheet 3 disimpan dalam file Excel terpisah.
-   - **Kombinasi Sempurna**: Usaha Status #1 akan diimputasi sesuai nilai kustom pilihan Anda, sedangkan usaha Status #0 tetap otomatis diberi catatan konfirmasi #0 pada nilai produksi (27.a / 31.a / UB 23.a) tanpa perlu diatur ulang.
+   - **Kombinasi Sempurna**: Usaha Status #1 akan diimputasi sesuai racikan variabel & nilai kustom pilihan Anda, sedangkan usaha Status #0 tetap otomatis diberi catatan konfirmasi #0 pada nilai produksi (27.a / 31.a / UB 23.a) tanpa perlu diatur ulang.
 
 6. **Integrasi Antrian Bot FASIH**:
    - Anda dapat memilih data yang ingin dieksekusi oleh bot melalui tombol filter:
