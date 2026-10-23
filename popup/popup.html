@@ -166,6 +166,32 @@
                 Unduh Hasil Validasi (.xlsx 3-Sheet)
               </button>
             </div>
+
+            <!-- Opsi Kustom Sheet 3 (Data Perbaikan Disiapkan Sendiri) -->
+            <div class="ntb-custom-sheet-box" id="ntbCustomSheetBox">
+              <div class="ntb-custom-sheet-header">
+                <label class="checkbox-label ntb-custom-label">
+                  <input type="checkbox" id="checkUseCustomSheet3">
+                  <span><b>Gunakan Sheet 3 Kustom</b> (Data perbaikan racikan sendiri)</span>
+                </label>
+                <span id="customSheet3Badge" class="custom-sheet-badge hidden">0 Baris Kustom</span>
+              </div>
+              <p class="ntb-custom-sheet-desc">
+                Jika diaktifkan, nilai perbaikan Status #1 diambil dari Sheet 3 hasil editan Anda sendiri. Status #0 tetap diberi catatan #0 wajar secara otomatis.
+              </p>
+              <div class="ntb-custom-actions">
+                <input type="file" id="customSheet3Input" accept=".xlsx,.xls,.csv" style="display:none">
+                <button id="btnUploadCustomSheet3" class="btn-template btn-custom-upload" type="button">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                  </svg>
+                  Upload Sheet 3 Terpisah (.xlsx)
+                </button>
+                <button id="btnResetCustomSheet3" class="btn-link-xs hidden" type="button">Reset ke Hitungan Otomatis</button>
+              </div>
+            </div>
           </div>
 
           <div class="ntb-filter-wrap">

@@ -879,3 +879,74 @@ body {
   color: #15803D;
   border: 1px solid #BBF7D0;
 }
+
+
+/* Custom Sheet 3 Box di Tab Validasi NTB */
+.ntb-custom-sheet-box {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #FFFFFF;
+  border: 1px dashed #C084FC;
+  border-radius: 6px;
+}
+.ntb-custom-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ntb-custom-label {
+  font-size: 11px;
+  color: #581C87;
+  cursor: pointer;
+  margin: 0;
+}
+.custom-sheet-badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #E9D5FF;
+  color: #6B21A8;
+  white-space: nowrap;
+}
+.ntb-custom-sheet-desc {
+  font-size: 9.5px;
+  color: var(--text-muted);
+  line-height: 1.35;
+  margin: 4px 0 6px 0;
+}
+.ntb-custom-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-custom-upload {
+  font-size: 10px;
+  padding: 4px 8px;
+  color: #6B21A8;
+  border-color: #C084FC;
+  background: #FAF5FF;
+}
+.btn-custom-upload:hover {
+  background: #F3E8FF;
+}
+.badge-custom-pill {
+  display: inline-block;
+  background: #E9D5FF;
+  color: #6B21A8;
+  font-size: 8.5px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-right: 3px;
+}
+.btn-link-xs {
+  background: none;
+  border: none;
+  color: #DC2626;
+  font-size: 10px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}

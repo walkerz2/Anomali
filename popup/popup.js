@@ -91,6 +91,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const ntbCountAll = $('ntbCountAll');
   const ntbCount1 = $('ntbCount1');
   const ntbCount0 = $('ntbCount0');
+  const checkUseCustomSheet3 = $('checkUseCustomSheet3');
+  const customSheet3Badge = $('customSheet3Badge');
+  const btnUploadCustomSheet3 = $('btnUploadCustomSheet3');
+  const customSheet3Input = $('customSheet3Input');
+  const btnResetCustomSheet3 = $('btnResetCustomSheet3');
 
   const MODE_INFO = {
     DC0: {
@@ -128,6 +133,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   let runnerStatus = 'IDLE';
   let ntbValidationResult = null; // Hasil validasi dataset NTB ({ items, summary })
   let ntbFilterMode = 'ALL';      // 'ALL' | 'ONLY_1' | 'ONLY_0'
+  let ntbCustomSheet3Rows = null; // Baris Sheet 3 Kustom jika disiapkan sendiri oleh pengguna
+
+  function updateCustomSheet3UI() {
+    if (!customSheet3Badge || !checkUseCustomSheet3) return;
+    if (ntbCustomSheet3Rows && ntbCustomSheet3Rows.length > 0) {
+      customSheet3Badge.textContent = `✓ ${ntbCustomSheet3Rows.length} Baris Kustom`;
+      customSheet3Badge.classList.remove('hidden');
+      if (btnResetCustomSheet3) btnResetCustomSheet3.classList.remove('hidden');
+    } else {
+      customSheet3Badge.classList.add('hidden');
+      if (btnResetCustomSheet3) btnResetCustomSheet3.classList.add('hidden');
+    }
+  }
 
   function updateNtbSummaryUI() {
     if (!ntbValidationResult || !ntbValidationResult.summary) {
@@ -165,7 +183,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!ntbValidationResult || !ntbValidationResult.items || !ntbValidationResult.items.length) return;
     ntbFilterMode = filter;
     updateNtbSummaryUI();
-    const converted = NTB_VALIDATOR.convertNtbToQueue(ntbValidationResult.items, filter);
+    const useCustomSheet3 = Boolean(checkUseCustomSheet3 && checkUseCustomSheet3.checked && ntbCustomSheet3Rows && ntbCustomSheet3Rows.length);
+    const converted = NTB_VALIDATOR.convertNtbToQueue(ntbValidationResult.items, filter, useCustomSheet3 ? ntbCustomSheet3Rows : null);
     allRows = converted;
     queue = filterRowsByRange(allRows);
     queueMode = 'NTB';
@@ -441,10 +460,40 @@ document.addEventListener('DOMContentLoaded', async () => {
           alert('Tidak ada baris data valid yang terbaca dari file PANTAU.');
           return;
         }
+
+        // Cek apakah file yang diupload memiliki Sheet 3 ("Template API Siap Pakai")
+        let apiSheetName = wb.SheetNames.find(n => /Template API|Siap Pakai|Sheet\s*3|^API/i.test(n.trim())) || (wb.SheetNames.length >= 3 ? wb.SheetNames[2] : null);
+        if (!apiSheetName && wb.SheetNames.length > 1) {
+          apiSheetName = wb.SheetNames.slice(1).find(sn => {
+            try {
+              const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, range: 0 });
+              const headers = (rows && rows[0]) || [];
+              return headers.some(h => /link_fasih|assignment_id/i.test(String(h).trim()));
+            } catch (e) { return false; }
+          });
+        }
+        if (apiSheetName) {
+          try {
+            const sheet3Raw = XLSX.utils.sheet_to_json(wb.Sheets[apiSheetName], { defval: '', raw: false });
+            if (sheet3Raw && sheet3Raw.length > 0) {
+              const parsedSheet3 = parseApiRows(sheet3Raw);
+              if (parsedSheet3 && parsedSheet3.length > 0) {
+                ntbCustomSheet3Rows = parsedSheet3;
+                if (checkUseCustomSheet3) checkUseCustomSheet3.checked = true;
+                console.log(`[TUNTAS NTB] Terdeteksi Sheet 3 ("${apiSheetName}") dengan ${parsedSheet3.length} baris perbaikan kustom.`);
+              }
+            }
+          } catch (eSheet3) {
+            console.warn('Gagal membaca Sheet 3 dari file Excel:', eSheet3);
+          }
+        }
+        updateCustomSheet3UI();
+
         ntbFilterMode = 'ALL';
         updateNtbSummaryUI();
         queueMode = 'NTB';
-        const converted = NTB_VALIDATOR.convertNtbToQueue(ntbValidationResult.items, ntbFilterMode);
+        const useCustomSheet3 = Boolean(checkUseCustomSheet3 && checkUseCustomSheet3.checked && ntbCustomSheet3Rows && ntbCustomSheet3Rows.length);
+        const converted = NTB_VALIDATOR.convertNtbToQueue(ntbValidationResult.items, ntbFilterMode, useCustomSheet3 ? ntbCustomSheet3Rows : null);
         allRows = converted;
         queue = filterRowsByRange(allRows);
         await chrome.storage.local.set({
@@ -713,6 +762,70 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ---------- Event Listener Menu NTB ----------
+  // Event Listener Opsi Custom Sheet 3 pada Tab NTB
+  if (checkUseCustomSheet3) {
+    checkUseCustomSheet3.addEventListener('change', () => {
+      if (activeMode === 'NTB' && ntbValidationResult) {
+        applyNtbFilter(ntbFilterMode);
+        const isCustom = Boolean(checkUseCustomSheet3.checked && ntbCustomSheet3Rows && ntbCustomSheet3Rows.length);
+        liveStatusText.textContent = isCustom
+          ? `Antrian dimuat menggunakan Sheet 3 Kustom (${ntbCustomSheet3Rows.length} baris perbaikan racikan sendiri).`
+          : 'Antrian dikembalikan menggunakan hitungan formula otomatis ekstensi.';
+      }
+    });
+  }
+
+  if (btnUploadCustomSheet3 && customSheet3Input) {
+    btnUploadCustomSheet3.addEventListener('click', () => {
+      customSheet3Input.value = '';
+      customSheet3Input.click();
+    });
+    customSheet3Input.addEventListener('change', async (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      try {
+        const buf = new Uint8Array(await f.arrayBuffer());
+        const wbCustom = XLSX.read(buf, { type: 'array' });
+        let sName = wbCustom.SheetNames.find(n => /Template API|Siap Pakai|Sheet\s*3|^API/i.test(n.trim()));
+        if (!sName) {
+          sName = wbCustom.SheetNames.find(sn => {
+            try {
+              const rows = XLSX.utils.sheet_to_json(wbCustom.Sheets[sn], { header: 1, range: 0 });
+              const headers = (rows && rows[0]) || [];
+              return headers.some(h => /link_fasih|assignment_id/i.test(String(h).trim()));
+            } catch (e) { return false; }
+          }) || wbCustom.SheetNames[0];
+        }
+        const rawData = XLSX.utils.sheet_to_json(wbCustom.Sheets[sName], { defval: '', raw: false });
+        const parsed = parseApiRows(rawData);
+        if (!parsed.length) {
+          alert('File Sheet 3 tidak memiliki baris data yang valid.');
+          return;
+        }
+        ntbCustomSheet3Rows = parsed;
+        if (checkUseCustomSheet3) checkUseCustomSheet3.checked = true;
+        updateCustomSheet3UI();
+        if (ntbValidationResult) {
+          applyNtbFilter(ntbFilterMode);
+        }
+        alert(`Sheet 3 Kustom berhasil dimuat: ${parsed.length} baris perbaikan racikan sendiri!\nNilai perbaikan Status #1 kini menggunakan data dari file ini.`);
+      } catch (err) {
+        alert('Gagal membaca file Sheet 3: ' + err.message);
+      }
+    });
+  }
+
+  if (btnResetCustomSheet3) {
+    btnResetCustomSheet3.addEventListener('click', () => {
+      ntbCustomSheet3Rows = null;
+      if (checkUseCustomSheet3) checkUseCustomSheet3.checked = false;
+      updateCustomSheet3UI();
+      if (ntbValidationResult) {
+        applyNtbFilter(ntbFilterMode);
+      }
+    });
+  }
+
   if (btnDownloadNtbExcel) {
     btnDownloadNtbExcel.addEventListener('click', () => {
       if (!ntbValidationResult || !ntbValidationResult.items || !ntbValidationResult.items.length) {
@@ -1126,9 +1239,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         : (item.mode === 'API'
           ? `<div class="kbli-line">${escapeHtml(apiKeys.slice(0, 4).map(k => `${k}=${item.apiValues[k]}`).join(', '))}${apiKeys.length > 4 ? ` +${apiKeys.length - 4}` : ''}${apiRem.length ? ` · ${apiRem.length} catatan` : ''}</div>`
           : '');
+      const customSheetPill = (item.ntbInfo && item.ntbInfo.isCustomSheet3) ? '<span class="badge-custom-pill">Sheet 3 Kustom</span> ' : '';
       const ntbLine = item.ntbInfo
         ? (item.ntbInfo.status === '#1'
-            ? `<div class="ntb-line ntb-line-anomali">⚠️ <b>#1 Imputasi:</b> Ubah <code>${escapeHtml(item.ntbInfo.varUbah || '')}</code> jadi <b>${NTB_VALIDATOR.formatRp(item.ntbInfo.valBaru)}</b> (Rasio: ${item.ntbInfo.rasioLama}% → ${item.ntbInfo.rasioBaru}%)</div>`
+            ? `<div class="ntb-line ntb-line-anomali">⚠️ <b>#1 Imputasi:</b> ${customSheetPill}Ubah <code>${escapeHtml(item.ntbInfo.varUbah || '')}</code> jadi <b>${typeof item.ntbInfo.valBaru === 'number' ? NTB_VALIDATOR.formatRp(item.ntbInfo.valBaru) : escapeHtml(item.ntbInfo.valBaru || '')}</b> (Rasio: ${item.ntbInfo.rasioLama}% → ${item.ntbInfo.rasioBaru}%)</div>`
             : `<div class="ntb-line ntb-line-valid">✅ <b>#0 Wajar:</b> Kategori ${escapeHtml(item.ntbInfo.kategori || '')} · Rasio Riil: <b>${item.ntbInfo.rasio}%</b></div>`
           )
         : '';

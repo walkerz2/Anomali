@@ -68,7 +68,13 @@ Fitur ini mengintegrasikan kecerdasan validasi **Rasio Nilai Tambah Bruto (NTB F
      - **Sheet 2 (Panduan Imputasi #1)**: Daftar usaha anomali beserta instruksi petugas lapangan.
      - **Sheet 3 (Template API Siap Pakai)**: Format kolom siap pakai yang langsung cocok dengan menu API Ubah Variabel.
 
-5. **Integrasi Antrian Bot FASIH**:
+5. **Opsi Persiapan Sheet 3 Kustom (Input Mandiri)**:
+   - Jika Anda ingin menentukan sendiri variabel perbaikan atau nominal imputasi (bukan dari hitungan otomatis formula ekstensi), Anda dapat mengedit **Sheet 3 (Template API Siap Pakai)** secara mandiri.
+   - **Deteksi Otomatis**: Saat file Excel yang memiliki sheet Template API Siap Pakai diunggah kembali ke menu NTB, sistem otomatis mendeteksi dan mengaktifkan mode kustom (ditandai dengan badge hijau *Sheet 3 Kustom Terdeteksi*).
+   - **Upload File Terpisah**: Disediakan tombol **Unggah Sheet 3 Kustom** jika file Sheet 3 disimpan dalam file Excel terpisah.
+   - **Kombinasi Sempurna**: Usaha Status #1 akan diimputasi sesuai nilai kustom pilihan Anda, sedangkan usaha Status #0 tetap otomatis diberi catatan konfirmasi #0 pada nilai produksi (27.a / 31.a / UB 23.a) tanpa perlu diatur ulang.
+
+6. **Integrasi Antrian Bot FASIH**:
    - Anda dapat memilih data yang ingin dieksekusi oleh bot melalui tombol filter:
      - **Semua**: Memproses seluruh baris (Status #1 via API ubah variabel + submit + approve; Status #0 via catatan konfirmasi #0 pada 27.a + submit + approve).
      - **Hanya #1**: Hanya memproses unit usaha anomali yang perlu perbaikan nilai angka via API.
