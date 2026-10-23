@@ -198,28 +198,125 @@
     : Array.isArray(v) ? v.map((x) => (x && x.label != null ? x.label : JSON.stringify(x))).join(' / ')
     : typeof v === 'object' ? JSON.stringify(v) : String(v);
 
+  // Smart Alias Mapping untuk kuisioner Usaha Buka 2026 (> 2025) dan Kuisioner UB
+  const SMART_NTB_ALIASES = {
+    // Pendapatan Barang & Jasa (R27a / 31a / 23a)
+    'r27a': [
+      'r27a', 'b4_r27a', 'r27_a',
+      'nilai_pendapatan_bln', 'r31a', 'r31_a', 'r31', 'pendapatan_bln',
+      'r23a', 'r23_a', 'nilai_produksi_ub', 'nilai_produksi'
+    ],
+    'b4_r27a': [
+      'b4_r27a', 'r27a', 'r27_a',
+      'nilai_pendapatan_bln', 'r31a', 'r31_a', 'r31', 'pendapatan_bln',
+      'r23a', 'r23_a', 'nilai_produksi_ub', 'nilai_produksi'
+    ],
+
+    // Pendapatan Lainnya (R27b / 31b / 23b)
+    'r27b': [
+      'r27b', 'b4_r27b', 'r27_b',
+      'pendapatan_lain_bln', 'r31b', 'r31_b',
+      'r23b', 'r23_b', 'pendapatan_lainnya_ub', 'pendapatan_lain_ub'
+    ],
+    'b4_r27b': [
+      'b4_r27b', 'r27b', 'r27_b',
+      'pendapatan_lain_bln', 'r31b', 'r31_b',
+      'r23b', 'r23_b', 'pendapatan_lainnya_ub', 'pendapatan_lain_ub'
+    ],
+
+    // Biaya Pembelian Barang Dagangan (R26c / 30b / 22c)
+    'r26c': [
+      'r26c', 'b4_r26c', 'r26_c',
+      'biaya_produksi_bln', 'biaya_operasional_bln', 'r30b', 'r30_b',
+      'r22c', 'r22_c', 'r22b', 'r22d', 'biaya_operasional_ub'
+    ],
+    'b4_r26c': [
+      'b4_r26c', 'r26c', 'r26_c',
+      'biaya_produksi_bln', 'biaya_operasional_bln', 'r30b', 'r30_b',
+      'r22c', 'r22_c', 'r22b', 'r22d', 'biaya_operasional_ub'
+    ],
+
+    // Biaya Bahan Baku / Produksi (R26b / 30b / 22b)
+    'r26b': [
+      'r26b', 'b4_r26b', 'r26_b',
+      'biaya_produksi_bln', 'biaya_operasional_bln', 'r30b', 'r30_b',
+      'r22b', 'r22_b', 'r22c', 'r22d', 'biaya_operasional_ub'
+    ],
+    'b4_r26b': [
+      'b4_r26b', 'r26b', 'r26_b',
+      'biaya_produksi_bln', 'biaya_operasional_bln', 'r30b', 'r30_b',
+      'r22b', 'r22_b', 'r22c', 'r22d', 'biaya_operasional_ub'
+    ],
+
+    // Biaya Operasional Lainnya (R26d / 30b / 22d)
+    'r26d': [
+      'r26d', 'b4_r26d', 'r26_d',
+      'biaya_produksi_bln', 'biaya_operasional_bln', 'r30b', 'r30_b',
+      'r22d', 'r22_d', 'r22b', 'r22c', 'biaya_operasional_ub'
+    ],
+    'b4_r26d': [
+      'b4_r26d', 'r26d', 'r26_d',
+      'biaya_produksi_bln', 'biaya_operasional_bln', 'r30b', 'r30_b',
+      'r22d', 'r22_d', 'r22b', 'r22c', 'biaya_operasional_ub'
+    ]
+  };
+
   /* ---------------- kolom tanpa #angka -> dataKey lengkap di dokumen ---------------- */
   const normTeks = (t) => String(t ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
   function resolveKey(S, doc, k, namaUsaha) {
     if (/#\d+$/.test(k)) return k;                              // sudah lengkap (mis. r27a#2001)
     const ada = doc.answers.map((a) => a.dataKey);
     if (ada.includes(k)) return k;                              // variabel di luar roster
-    const calon = ada.filter((d) => baseKey(d) === k);
+
+    // 1. Coba pencocokan langsung nama variabel k
+    let calon = ada.filter((d) => baseKey(d).toLowerCase() === k.toLowerCase());
+    let targetKey = k;
+
+    // 2. Jika tidak ditemukan di dokumen, periksa apakah ada daftar Smart Alias (UB / Usaha Buka 2026)
+    const lowerK = k.toLowerCase();
+    if (!calon.length && SMART_NTB_ALIASES[lowerK]) {
+      const aliasList = SMART_NTB_ALIASES[lowerK];
+      for (const alias of aliasList) {
+        if (ada.includes(alias)) {
+          console.log(`[TUNTAS API] Smart Alias aktif: ${k} → ${alias}`);
+          return alias;
+        }
+        const aliasCalon = ada.filter((d) => baseKey(d).toLowerCase() === alias.toLowerCase());
+        if (aliasCalon.length > 0) {
+          console.log(`[TUNTAS API] Smart Alias aktif (dengan roster): ${k} → ${alias} (${aliasCalon.length} unit usaha)`);
+          calon = aliasCalon;
+          targetKey = alias;
+          break;
+        }
+      }
+    }
+
     if (calon.length === 1) return calon[0];
     if (calon.length > 1) {
       // beberapa usaha/baris: pilih yang akhirannya sama dengan baris bernama nama_usaha
       const n = normTeks(namaUsaha);
       if (n) {
-        const suf = calon.map((c) => c.match(/#\d+$/)[0]);
+        const suf = calon.map((c) => (c.match(/#\d+$/) || [''])[0]).filter(Boolean);
         for (const cocok of [(v) => v === n, (v) => v && (v.includes(n) || n.includes(v))]) {
           const hit = new Set(doc.answers.filter((a) => typeof a.answer === 'string' && cocok(normTeks(a.answer)))
             .map((a) => (a.dataKey.match(/#\d+$/) || [''])[0]).filter((x) => suf.includes(x)));
-          if (hit.size === 1) return k + [...hit][0];
+          if (hit.size === 1) return targetKey + [...hit][0];
         }
       }
-      throw new Error(`${k}: dokumen punya ${calon.length} baris (${calon.slice(0, 5).join(', ')}) — isi nama_usaha yang tepat atau tulis judul kolom lengkap`);
+      return calon[0]; // fallback ke baris usaha pertama bila nama usaha tidak persis sama
     }
+
+    // 3. Cek apakah ada di Schema FormGear
     if (S.has(k)) return k;
+    if (SMART_NTB_ALIASES[lowerK]) {
+      for (const alias of SMART_NTB_ALIASES[lowerK]) {
+        if (S.has(alias)) {
+          console.log(`[TUNTAS API] Smart Alias dari Schema: ${k} → ${alias}`);
+          return alias;
+        }
+      }
+    }
+
     throw new Error(`${k}: variabel tidak ditemukan di form maupun di dokumen — periksa ejaan dataKey`);
   }
 

@@ -4426,163 +4426,167 @@
     let lastFoundExistingCode = '';
     let lastFoundExistingReason = '';
 
-    for (let i = 0; i < businessItems.length; i++) {
-      await checkAbortOrPause();
-      await ensureCommentModalClosed();
-
-      let itemEl = businessItems[i];
-      if (i > 0 && itemEl && !document.body.contains(itemEl)) {
-        const freshItems = getBusinessItems();
-        if (freshItems && freshItems[i]) itemEl = freshItems[i];
-      }
-
-      let usahaName = options.targetUsaha || `Unit Usaha #${i + 1}`;
-
-      if (itemEl) {
-        usahaName = usahaLabel(itemEl) || usahaName;
-        if (businessItems.length > 1 || !options.targetUsaha) {
-          notifyStep('STEP_5_SELECT', `[${i + 1}/${businessItems.length}] Mengklik: ${usahaName}...`, 'progress');
-          await humanClick(itemEl);
-          await sleep(getJitterDelay(stepDelay));
-        }
-      }
-
-      if (kbliTask) {
-        const r = await processKbliForCurrentUnit(kbliTask, options, usahaName, `${i + 1}/${businessItems.length}`);
-        if (r.error) {
-          notifyStep('KBLI_ERROR', r.error, 'error');
-          return { success: false, error: `KBLI: ${r.error}` };
-        }
-        if (r.matched && r.alreadyExists && !r.changed && !options.isPostRevoke) {
-          existingRemarksCount++;
-          lastFoundExistingCode = r.foundCode;
-          lastFoundExistingReason = `Remark ${r.foundCode} sudah ada pada ${r.targetCode || '13.g'} (${usahaName})`;
-          notifyStep('STEP_5_ALREADY_EXISTS', `${lastFoundExistingReason}. Langsung tutup tab & lanjut baris berikutnya...`, 'warning');
-          return {
-            success: true,
-            skipped: true,
-            alreadyHasRemark: true,
-            foundCode: r.foundCode,
-            reason: `${lastFoundExistingReason} (dilewati)`
-          };
-        }
-        if (r.matched) {
-          newRemarksAdded++;
-          kbliProcessed.push(`${usahaName}${r.changed ? ` (${kbliTask.kbliAwal}→${kbliTask.kbliTujuan})` : ''} ${r.catatan} di ${r.targetCode || '13.g'}`);
-        } else if (r.note) {
-          kbliSkippedNotes.push(r.note);
-          notifyStep('KBLI_SKIP_UNIT', r.note, 'progress');
-        }
-        await randomSleep(400, 650);
-        continue;
-      }
-
-      // Dapatkan seluruh daftar target pertanyaan untuk unit usaha ini (primer & sekunder/tambahan)
-      const targetQuestions = getTargetQuestionsList(options);
-      if (targetQuestions.length === 0) {
-        return { success: false, error: 'Target catatan tidak tersedia untuk kuesioner ini (13.g Kode KBLI hanya ada di non-UB)' };
-      }
-      notifyStep('STEP_5_QUESTION', `[${i + 1}/${businessItems.length}] Memeriksa ${targetQuestions.length} pertanyaan target catatan untuk ${usahaName}...`);
-
-      for (let qIdx = 0; qIdx < targetQuestions.length; qIdx++) {
+    if (options.apiFinalize) {
+      notifyStep('STEP_5_API_DONE', 'Nilai dan catatan telah berhasil disimpan via API. Memeriksa anomali formulir & memproses pengiriman survei (Kirim)...', 'progress');
+    } else {
+      for (let i = 0; i < businessItems.length; i++) {
         await checkAbortOrPause();
-        const tq = targetQuestions[qIdx];
-        const qIndexStr = `${i + 1}/${businessItems.length} (${qIdx + 1}/${targetQuestions.length})`;
-
-        // Pastikan modal dari pertanyaan sebelumnya sudah benar-benar tertutup sebelum mencari target berikutnya
         await ensureCommentModalClosed();
-        await randomSleep(200, 350);
 
-        // Untuk target pertama ('a'), pastikan scroll selalu mulai dari bagian atas form agar tidak pernah terlewat
-        if (qIdx === 0) {
-          smoothScrollToTop();
-          await randomSleep(200, 350);
+        let itemEl = businessItems[i];
+        if (i > 0 && itemEl && !document.body.contains(itemEl)) {
+          const freshItems = getBusinessItems();
+          if (freshItems && freshItems[i]) itemEl = freshItems[i];
         }
 
-        notifyStep('STEP_5_FIND_Q', `[${qIndexStr}] Mencari ${tq.label}...`);
-        // Pindai viewport secara dinamis agar pertanyaan target (terutama 'a') tidak pernah terskip!
-        let qEl = await findTargetQuestionWithDynamicScroll(tq.finder, tq.code);
+        let usahaName = options.targetUsaha || `Unit Usaha #${i + 1}`;
 
-        if (qEl) dc0TargetsFound++;
-        if (!qEl) {
-          notifyStep('STEP_5_QUESTION_SKIP', `[${qIndexStr}] Pertanyaan ${tq.code} (${tq.label}) tidak ditemukan pada formulir. Melanjutkan ke target berikutnya...`, 'warning');
+        if (itemEl) {
+          usahaName = usahaLabel(itemEl) || usahaName;
+          if (businessItems.length > 1 || !options.targetUsaha) {
+            notifyStep('STEP_5_SELECT', `[${i + 1}/${businessItems.length}] Mengklik: ${usahaName}...`, 'progress');
+            await humanClick(itemEl);
+            await sleep(getJitterDelay(stepDelay));
+          }
+        }
+
+        if (kbliTask) {
+          const r = await processKbliForCurrentUnit(kbliTask, options, usahaName, `${i + 1}/${businessItems.length}`);
+          if (r.error) {
+            notifyStep('KBLI_ERROR', r.error, 'error');
+            return { success: false, error: `KBLI: ${r.error}` };
+          }
+          if (r.matched && r.alreadyExists && !r.changed && !options.isPostRevoke) {
+            existingRemarksCount++;
+            lastFoundExistingCode = r.foundCode;
+            lastFoundExistingReason = `Remark ${r.foundCode} sudah ada pada ${r.targetCode || '13.g'} (${usahaName})`;
+            notifyStep('STEP_5_ALREADY_EXISTS', `${lastFoundExistingReason}. Langsung tutup tab & lanjut baris berikutnya...`, 'warning');
+            return {
+              success: true,
+              skipped: true,
+              alreadyHasRemark: true,
+              foundCode: r.foundCode,
+              reason: `${lastFoundExistingReason} (dilewati)`
+            };
+          }
+          if (r.matched) {
+            newRemarksAdded++;
+            kbliProcessed.push(`${usahaName}${r.changed ? ` (${kbliTask.kbliAwal}→${kbliTask.kbliTujuan})` : ''} ${r.catatan} di ${r.targetCode || '13.g'}`);
+          } else if (r.note) {
+            kbliSkippedNotes.push(r.note);
+            notifyStep('KBLI_SKIP_UNIT', r.note, 'progress');
+          }
+          await randomSleep(400, 650);
           continue;
         }
 
-        notifyStep('STEP_5_QUESTION_FOUND', `[${qIndexStr}] Target catatan: ${tq.label}`, 'progress');
-
-        const commentRes = await fillCommentForTargetQuestion({
-          questionEl: qEl,
-          targetCode: tq.code,
-          targetLabel: tq.label,
-          effectiveComment: tq.effectiveComment,
-          isSecondary: tq.isSecondary,
-          exactCodeOnly: tq.exactCodeOnly === true,
-          stepDelay,
-          indexStr: qIndexStr,
-          closeModalOnExisting: Boolean(options.isActiveTabTest || options.closeTabOnComplete === false)
-        });
-
-        if (!commentRes) {
-          const failMsg = `Gagal pemberian remark "${tq.effectiveComment}" pada ${tq.code} (${usahaName}): tombol Catatan atau modal catatan tidak terbuka.`;
-          notifyStep('STEP_5_REMARK_FAIL', failMsg, 'error');
-          return {
-            success: false,
-            error: failMsg
-          };
+        // Dapatkan seluruh daftar target pertanyaan untuk unit usaha ini (primer & sekunder/tambahan)
+        const targetQuestions = getTargetQuestionsList(options);
+        if (targetQuestions.length === 0) {
+          return { success: false, error: 'Target catatan tidak tersedia untuk kuesioner ini (13.g Kode KBLI hanya ada di non-UB)' };
         }
+        notifyStep('STEP_5_QUESTION', `[${i + 1}/${businessItems.length}] Memeriksa ${targetQuestions.length} pertanyaan target catatan untuk ${usahaName}...`);
 
-        if (commentRes && commentRes.alreadyExists && !options.isPostRevoke) {
-          existingRemarksCount++;
-          lastFoundExistingCode = commentRes.foundCode;
-          lastFoundExistingReason = `Remark ${commentRes.foundCode} sudah ada pada ${tq.code} (${usahaName})`;
-          notifyStep('STEP_5_ALREADY_EXISTS', `${lastFoundExistingReason}. Langsung tutup tab & lanjut baris berikutnya...`, 'warning');
-          if (options.isActiveTabTest || options.closeTabOnComplete === false) {
-            await ensureCommentModalClosed();
+        for (let qIdx = 0; qIdx < targetQuestions.length; qIdx++) {
+          await checkAbortOrPause();
+          const tq = targetQuestions[qIdx];
+          const qIndexStr = `${i + 1}/${businessItems.length} (${qIdx + 1}/${targetQuestions.length})`;
+
+          // Pastikan modal dari pertanyaan sebelumnya sudah benar-benar tertutup sebelum mencari target berikutnya
+          await ensureCommentModalClosed();
+          await randomSleep(200, 350);
+
+          // Untuk target pertama ('a'), pastikan scroll selalu mulai dari bagian atas form agar tidak pernah terlewat
+          if (qIdx === 0) {
+            smoothScrollToTop();
+            await randomSleep(200, 350);
           }
-          return {
-            success: true,
-            skipped: true,
-            alreadyHasRemark: true,
-            foundCode: commentRes.foundCode,
-            reason: `${lastFoundExistingReason} (dilewati)`
-          };
+
+          notifyStep('STEP_5_FIND_Q', `[${qIndexStr}] Mencari ${tq.label}...`);
+          // Pindai viewport secara dinamis agar pertanyaan target (terutama 'a') tidak pernah terskip!
+          let qEl = await findTargetQuestionWithDynamicScroll(tq.finder, tq.code);
+
+          if (qEl) dc0TargetsFound++;
+          if (!qEl) {
+            notifyStep('STEP_5_QUESTION_SKIP', `[${qIndexStr}] Pertanyaan ${tq.code} (${tq.label}) tidak ditemukan pada formulir. Melanjutkan ke target berikutnya...`, 'warning');
+            continue;
+          }
+
+          notifyStep('STEP_5_QUESTION_FOUND', `[${qIndexStr}] Target catatan: ${tq.label}`, 'progress');
+
+          const commentRes = await fillCommentForTargetQuestion({
+            questionEl: qEl,
+            targetCode: tq.code,
+            targetLabel: tq.label,
+            effectiveComment: tq.effectiveComment,
+            isSecondary: tq.isSecondary,
+            exactCodeOnly: tq.exactCodeOnly === true,
+            stepDelay,
+            indexStr: qIndexStr,
+            closeModalOnExisting: Boolean(options.isActiveTabTest || options.closeTabOnComplete === false)
+          });
+
+          if (!commentRes) {
+            const failMsg = `Gagal pemberian remark "${tq.effectiveComment}" pada ${tq.code} (${usahaName}): tombol Catatan atau modal catatan tidak terbuka.`;
+            notifyStep('STEP_5_REMARK_FAIL', failMsg, 'error');
+            return {
+              success: false,
+              error: failMsg
+            };
+          }
+
+          if (commentRes && commentRes.alreadyExists && !options.isPostRevoke) {
+            existingRemarksCount++;
+            lastFoundExistingCode = commentRes.foundCode;
+            lastFoundExistingReason = `Remark ${commentRes.foundCode} sudah ada pada ${tq.code} (${usahaName})`;
+            notifyStep('STEP_5_ALREADY_EXISTS', `${lastFoundExistingReason}. Langsung tutup tab & lanjut baris berikutnya...`, 'warning');
+            if (options.isActiveTabTest || options.closeTabOnComplete === false) {
+              await ensureCommentModalClosed();
+            }
+            return {
+              success: true,
+              skipped: true,
+              alreadyHasRemark: true,
+              foundCode: commentRes.foundCode,
+              reason: `${lastFoundExistingReason} (dilewati)`
+            };
+          }
+
+          newRemarksAdded++;
+
+          // Pastikan modal ditutup sempurna sebelum lanjut ke pertanyaan berikutnya
+          await ensureCommentModalClosed();
+          await randomSleep(350, 600);
         }
 
-        newRemarksAdded++;
-
-        // Pastikan modal ditutup sempurna sebelum lanjut ke pertanyaan berikutnya
-        await ensureCommentModalClosed();
-        await randomSleep(350, 600);
+        notifyStep('STEP_5_DONE_ITEM', `Catatan untuk unit usaha "${usahaName}" selesai diproses!`, 'progress');
+        await randomSleep(400, 650);
       }
 
-      notifyStep('STEP_5_DONE_ITEM', `Catatan untuk unit usaha "${usahaName}" selesai diproses!`, 'progress');
-      await randomSleep(400, 650);
-    }
+      // Jika semua unit usaha sudah memiliki remark sebelumnya: langsung tutup tab & lanjut baris berikutnya
+      if (newRemarksAdded === 0 && existingRemarksCount > 0 && !options.isPostRevoke) {
+        notifyStep('STEP_5_ALREADY_EXISTS', `${lastFoundExistingReason || 'Remark sudah ada sebelumnya'}. Langsung tutup tab & lanjut baris berikutnya...`, 'warning');
+        return {
+          success: true,
+          skipped: true,
+          alreadyHasRemark: true,
+          foundCode: lastFoundExistingCode,
+          reason: `${lastFoundExistingReason || 'Remark sudah ada'} (dilewati)`
+        };
+      }
 
-    // Jika semua unit usaha sudah memiliki remark sebelumnya: langsung tutup tab & lanjut baris berikutnya
-    if (newRemarksAdded === 0 && existingRemarksCount > 0 && !options.isPostRevoke) {
-      notifyStep('STEP_5_ALREADY_EXISTS', `${lastFoundExistingReason || 'Remark sudah ada sebelumnya'}. Langsung tutup tab & lanjut baris berikutnya...`, 'warning');
-      return {
-        success: true,
-        skipped: true,
-        alreadyHasRemark: true,
-        foundCode: lastFoundExistingCode,
-        reason: `${lastFoundExistingReason || 'Remark sudah ada'} (dilewati)`
-      };
-    }
-
-    if (!kbliTask && dc0TargetsFound === 0) {
-      notifyStep('DC0_NO_TARGET', 'Pertanyaan target catatan tidak ditemukan di unit usaha mana pun. Dokumen TIDAK dikirim.', 'error');
-      return { success: false, error: `Pertanyaan target catatan (${options.dc0Target === 'kbli' ? '13.g Kode KBLI' : 'nilai produksi 27.a/31.a/23.a'}) tidak ditemukan` };
-    }
-    if (kbliTask && kbliProcessed.length === 0) {
-      const why = kbliSkippedNotes.length ? kbliSkippedNotes.join(' | ') : 'tidak ada unit usaha terbaca';
-      notifyStep('KBLI_NO_MATCH', `Tidak ada unit usaha dengan KBLI ${kbliTask.kbliAwal}. Dokumen TIDAK dikirim.`, 'error');
-      return { success: false, error: `KBLI ${kbliTask.kbliAwal} tidak ditemukan di unit usaha mana pun (${why})` };
-    }
-    if (kbliTask) {
-      notifyStep('KBLI_DONE', `KBLI diproses: ${kbliProcessed.join('; ')}`, 'progress');
+      if (!kbliTask && dc0TargetsFound === 0) {
+        notifyStep('DC0_NO_TARGET', 'Pertanyaan target catatan tidak ditemukan di unit usaha mana pun. Dokumen TIDAK dikirim.', 'error');
+        return { success: false, error: `Pertanyaan target catatan (${options.dc0Target === 'kbli' ? '13.g Kode KBLI' : 'nilai produksi 27.a/31.a/23.a'}) tidak ditemukan` };
+      }
+      if (kbliTask && kbliProcessed.length === 0) {
+        const why = kbliSkippedNotes.length ? kbliSkippedNotes.join(' | ') : 'tidak ada unit usaha terbaca';
+        notifyStep('KBLI_NO_MATCH', `Tidak ada unit usaha dengan KBLI ${kbliTask.kbliAwal}. Dokumen TIDAK dikirim.`, 'error');
+        return { success: false, error: `KBLI ${kbliTask.kbliAwal} tidak ditemukan di unit usaha mana pun (${why})` };
+      }
+      if (kbliTask) {
+        notifyStep('KBLI_DONE', `KBLI diproses: ${kbliProcessed.join('; ')}`, 'progress');
+      }
     }
 
     notifyStep('STEP_5_ALL_DONE', 'Semua item usaha dan pertanyaan target telah selesai diberi catatan!');

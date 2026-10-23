@@ -73,6 +73,7 @@ Fitur ini mengintegrasikan kecerdasan validasi **Rasio Nilai Tambah Bruto (NTB F
      - **Semua**: Memproses seluruh baris (Status #1 via API ubah variabel + submit + approve; Status #0 via catatan konfirmasi #0 pada 27.a + submit + approve).
      - **Hanya #1**: Hanya memproses unit usaha anomali yang perlu perbaikan nilai angka via API.
      - **Hanya #0**: Hanya memproses unit usaha yang sudah sesuai batas wajar untuk diberi catatan konfirmasi.
+   - **Smart Alias Otomatis (UB & Usaha Buka 2026)**: Mesin API secara adaptif memetakan variabel pendapatan dan biaya jika dokumen survei adalah Usaha Buka 2026 (`31.a` / `nilai_pendapatan_bln` dan `30.b` / `biaya_produksi_bln`) maupun kuisioner UB (`23.a` / `r23a` dan `22` / `r22`), sehingga eksekusi Status #1 berjalan lancar dan otomatis untuk seluruh tipe kuisioner.
 
 ## 📋 Alur Kerja Otomasi (Workflow)
 
