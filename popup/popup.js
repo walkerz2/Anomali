@@ -47,6 +47,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const DEFAULT_WHATSAPP_SYNC_URL = 'https://n8n7309.online/webhook/tuntas-bot-sync';
   const btnTestWebhook = $('btnTestWebhook');
   const checkEnableWebhook = $('checkEnableWebhook');
+    const checkNotifyOnComplete = $('checkNotifyOnComplete');
+    const checkNotifyOnPauseStop = $('checkNotifyOnPauseStop');
   const checkAutoSsoLogin = $('checkAutoSsoLogin');
   const checkKeepAlive = $('checkKeepAlive');
   const keepAliveStatus = $('keepAliveStatus');
@@ -742,6 +744,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       enableWhatsAppRemote: checkEnableWhatsAppRemote ? checkEnableWhatsAppRemote.checked : true,
       whatsappSyncUrl: (whatsappSyncUrlInput && whatsappSyncUrlInput.value.trim()) || DEFAULT_WHATSAPP_SYNC_URL,
       enableWebhook: checkEnableWebhook ? checkEnableWebhook.checked : true,
+        notifyOnComplete: checkNotifyOnComplete ? checkNotifyOnComplete.checked : true,
+        notifyOnPauseStop: checkNotifyOnPauseStop ? checkNotifyOnPauseStop.checked : true,
       webhookUrl: (webhookUrlInput && webhookUrlInput.value.trim()) || DEFAULT_WEBHOOK_URL,
       autoSsoLogin: checkAutoSsoLogin ? checkAutoSsoLogin.checked : true,
       autoRevoke: checkAutoRevoke ? checkAutoRevoke.checked : true,
@@ -759,7 +763,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.storage.local.set({ runnerOptions: getOptions(), activeMode }).catch(() => {});
   }
   [commentInput, dc0TargetSelect, dc1TargetSelect, catatanDigantiInput, delayInput, periodeInput,
-    ssoEmailInput, ssoPasswordInput, pcNameInput, webhookUrlInput, checkEnableWebhook, checkAutoSsoLogin,
+    ssoEmailInput, ssoPasswordInput, pcNameInput, webhookUrlInput, checkEnableWebhook, checkNotifyOnComplete, checkNotifyOnPauseStop, checkAutoSsoLogin,
     checkAutoRevoke,
     checkRequireConfirm, checkAutoApprove, checkCloseTab, checkApiDryRun]
     .filter(Boolean)
@@ -1459,6 +1463,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (o.enableWhatsAppRemote !== undefined && checkEnableWhatsAppRemote) checkEnableWhatsAppRemote.checked = o.enableWhatsAppRemote;
     if (o.enableAdaptiveThrottling !== undefined && checkAdaptiveThrottling) checkAdaptiveThrottling.checked = o.enableAdaptiveThrottling;
     if (o.enableWebhook !== undefined && checkEnableWebhook) checkEnableWebhook.checked = o.enableWebhook;
+      if (o.notifyOnComplete !== undefined && checkNotifyOnComplete) checkNotifyOnComplete.checked = o.notifyOnComplete;
+      if (o.notifyOnPauseStop !== undefined && checkNotifyOnPauseStop) checkNotifyOnPauseStop.checked = o.notifyOnPauseStop;
     if (o.autoSsoLogin !== undefined && checkAutoSsoLogin) checkAutoSsoLogin.checked = o.autoSsoLogin;
     if (o.autoRevoke !== undefined && checkAutoRevoke) checkAutoRevoke.checked = o.autoRevoke;
     if (o.requireManualConfirm !== undefined) checkRequireConfirm.checked = o.requireManualConfirm;

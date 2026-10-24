@@ -462,8 +462,105 @@ async function syncWithWhatsAppRemote({ force = false, test = false } = {}) {
 }
 
 
+
+// Kirim notifikasi status (Selesai, Dijeda, Berhenti) ke Webhook n8n / WhatsApp
+async function sendWebhookStatusNotification({
+  event = 'STATUS_NOTIFICATION',
+  status = 'COMPLETED',
+  details = '',
+  customUrl = ''
+} = {}) {
+  try {
+    const opts = (runnerState && runnerState.options) || {};
+    if (!customUrl && opts.enableWebhook === false) {
+      return { ok: false, skipped: true, reason: 'Webhook dinonaktifkan' };
+    }
+
+    if (status === 'COMPLETED' && opts.notifyOnComplete === false) {
+      return { ok: false, skipped: true, reason: 'Notifikasi selesai dinonaktifkan' };
+    }
+    if ((status === 'PAUSED' || status === 'STOPPED') && opts.notifyOnPauseStop === false) {
+      return { ok: false, skipped: true, reason: 'Notifikasi jeda/stop dinonaktifkan' };
+    }
+
+    const webhookUrl = String(customUrl || opts.webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+    if (!webhookUrl || !/^https?:\/\//i.test(webhookUrl)) {
+      return { ok: false, error: 'URL Webhook tidak valid' };
+    }
+
+    const pcName = String(opts.pcName || 'PC 1').trim() || 'PC 1';
+    const store = await chrome.storage.local.get(['fasihQueue', 'runnerState']);
+    const queue = store.fasihQueue || [];
+    const total = queue.length;
+    const done = queue.filter((i) => ['SUCCESS', 'SKIPPED', 'FAILED', 'INVALID', 'DRYRUN'].includes(i.status)).length;
+    const successCount = queue.filter((i) => i.status === 'SUCCESS').length;
+    const failedCount = queue.filter((i) => i.status === 'FAILED').length;
+    const skippedCount = queue.filter((i) => i.status === 'SKIPPED').length;
+
+    const now = new Date();
+    const waktuLokal = now.toLocaleString('id-ID', { timeZone: 'Asia/Makassar' });
+
+    let icon = 'ℹ️';
+    let title = 'UPDATE STATUS';
+    if (status === 'COMPLETED' || event === 'ALL_COMPLETED') {
+      icon = '🎉';
+      title = 'ANTRIAN SELESAI';
+    } else if (status === 'PAUSED' || event === 'QUEUE_PAUSED') {
+      icon = '⏸️';
+      title = 'ANTRIAN DIJEDA';
+    } else if (status === 'STOPPED' || event === 'QUEUE_STOPPED') {
+      icon = '⏹️';
+      title = 'ANTRIAN DIHENTIKAN';
+    }
+
+    const lines = [
+      `${icon} [TUNTAS SE2026 - ${title} | ${pcName}]`,
+      `💻 PC: ${pcName}`,
+      `⚡ Status: *${status}*`,
+      `📈 Progres: *${done} / ${total}*`,
+      `✅ Sukses: ${successCount} | ❌ Gagal: ${failedCount}${skippedCount ? ` | ⏩ Dilewati: ${skippedCount}` : ''}`,
+      details ? `📝 Keterangan: ${details}` : null,
+      `⏰ Waktu: ${waktuLokal}`
+    ].filter(Boolean);
+
+    const formattedMessage = lines.join('\n');
+
+    const payload = {
+      event,
+      app: 'TUNTAS SE2026',
+      pc: pcName,
+      pc_name: pcName,
+      status,
+      timestamp: now.toISOString(),
+      waktu_lokal: waktuLokal,
+      progres: `${done} / ${total}`,
+      sukses: successCount,
+      gagal: failedCount,
+      dilewati: skippedCount,
+      total_antrian: total,
+      keterangan: details || '',
+      message: formattedMessage,
+      text: formattedMessage
+    };
+
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(() => controller.abort(), 10000);
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutHandle);
+    return { ok: response.ok, status: response.status };
+  } catch (err) {
+    console.warn('[TUNTAS Webhook] Gagal mengirim notifikasi status:', err);
+    return { ok: false, error: err.message };
+  }
+}
+
 // Eksekusi jeda antrian secara menyeluruh (digunakan oleh Pop-up UI & Remote WhatsApp)
-async function pauseQueueExecution() {
+async function pauseQueueExecution(details = 'Otomasi dijeda.') {
   runnerState.status = 'PAUSED';
   await chrome.storage.local.set({ runnerState });
   if (runnerState.activeTabId) {
@@ -480,6 +577,11 @@ async function pauseQueueExecution() {
     await updateItemStatus(runnerState.currentIndex, 'PAUSED', 'Dijeda');
   }
   broadcastToPopup({ action: 'QUEUE_PAUSED' });
+  sendWebhookStatusNotification({
+    event: 'QUEUE_PAUSED',
+    status: 'PAUSED',
+    details
+  }).catch(() => {});
   return { success: true };
 }
 
@@ -543,11 +645,67 @@ async function resumeQueueExecution(options = null) {
     runnerState.activeTabId = null;
     await chrome.storage.local.set({ runnerState });
     broadcastToPopup({ action: 'ALL_COMPLETED' });
+    sendWebhookStatusNotification({
+      event: 'ALL_COMPLETED',
+      status: 'COMPLETED',
+      details: 'Semua item dalam antrian sudah selesai diproses.'
+    }).catch(() => {});
     return { success: false, allCompleted: true, message: 'Semua item dalam antrian sudah selesai diproses.' };
   }
 
   startQueueRunner(nextIndex, { forceRestart: true });
   return { success: true, nextIndex };
+}
+
+
+// Eksekusi penghentian total antrian (digunakan oleh Pop-up UI & Remote WhatsApp)
+async function stopQueueExecution(details = 'Otomasi dihentikan total.') {
+  closeApiHelperTab();
+  stopKeepAlive();
+  queueRunToken++;
+  isQueueRunning = false;
+  runnerState.status = 'STOPPED';
+  const activeTabToClose = runnerState.activeTabId;
+  runnerState.activeTabId = null;
+  await chrome.storage.local.set({ runnerState });
+
+  if (activeTabToClose) {
+    chrome.tabs.sendMessage(activeTabToClose, { action: 'STOP_WORKFLOW' }).catch(() => {});
+    if (runnerState.options.closeTabOnComplete !== false) {
+      await safeCloseTab(activeTabToClose);
+    }
+  }
+  chrome.tabs.query({ url: ['*://fasih-sm.bps.go.id/*', '*://*.bps.go.id/*'] }, (tabs) => {
+    if (tabs && tabs.length > 0) {
+      for (const t of tabs) {
+        chrome.tabs.sendMessage(t.id, { action: 'STOP_WORKFLOW' }).catch(() => {});
+      }
+    }
+  });
+
+  const data = await chrome.storage.local.get(['fasihQueue']);
+  const q = data.fasihQueue || [];
+  let changed = false;
+  for (let i = 0; i < q.length; i++) {
+    if (q[i] && (q[i].status === 'OPENING_TAB' || q[i].status === 'PROCESSING' || q[i].status === 'PAUSED')) {
+      q[i].status = 'PENDING';
+      q[i].error = 'Diberhentikan (Stop)';
+      changed = true;
+    }
+  }
+  if (changed) {
+    await chrome.storage.local.set({ fasihQueue: q });
+    broadcastToPopup({ action: 'QUEUE_UPDATED', queue: q });
+  }
+
+  broadcastToPopup({ action: 'QUEUE_STOPPED' });
+  sendWebhookStatusNotification({
+    event: 'QUEUE_STOPPED',
+    status: 'STOPPED',
+    details
+  }).catch(() => {});
+
+  return { success: true };
 }
 
 async function handleRemoteWhatsAppCommand(cmd) {

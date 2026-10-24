@@ -282,6 +282,14 @@
             <input type="checkbox" id="checkEnableWebhook" checked>
             <span>Kirim notifikasi ke Webhook saat terjadi error / gagal remark / koneksi</span>
           </label>
+          <label class="checkbox-label" title="Kirim notifikasi otomatis ke WhatsApp saat seluruh antrian kuesioner telah selesai diproses">
+            <input type="checkbox" id="checkNotifyOnComplete" checked>
+            <span><b>Notifikasi Selesai</b> — Kirim pesan WA saat seluruh antrian selesai (ALL COMPLETED)</span>
+          </label>
+          <label class="checkbox-label" title="Kirim notifikasi otomatis ke WhatsApp saat bot dijeda (PAUSE) atau dihentikan (STOP)">
+            <input type="checkbox" id="checkNotifyOnPauseStop" checked>
+            <span><b>Notifikasi Jeda &amp; Stop</b> — Kirim pesan WA saat bot dijeda (PAUSE) atau dihentikan (STOP)</span>
+          </label>
           <label class="checkbox-label">
             <input type="checkbox" id="checkAutoSsoLogin" checked>
             <span>Auto Login SSO Eksternal jika diminta / sesi habis</span>
