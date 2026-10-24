@@ -756,7 +756,7 @@ async function saveQueueToStorage(queue) {
 
 // Update status baris tertentu
 async function updateItemStatus(index, itemStatus, errorMsg = '') {
-  const data = await chrome.storage.local.get(['fasihQueue']);
+  const data = await chrome.storage.local.get(['fasihQueue', 'excelFileName']);
   const queue = data.fasihQueue || [];
   if (queue[index]) {
     queue[index].status = itemStatus;
@@ -770,7 +770,8 @@ async function updateItemStatus(index, itemStatus, errorMsg = '') {
       action: 'QUEUE_UPDATED',
       index,
       itemStatus,
-      queue
+      queue,
+      excelFileName: data.excelFileName
     });
 
     // Kirim notifikasi ke Webhook jika error memenuhi syarat (ekstensi tidak jalan atau kandas proses remark)
@@ -1890,6 +1891,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       evaluateServerHealth();
       scheduleNextCloudSync(0);
 
+      const storeUpdates = { fasihQueue: queue, runnerState, runnerOptions: runnerState.options };
+      if (request.excelFileName) storeUpdates.excelFileName = request.excelFileName;
+      if (request.queueMode || (request.options && request.options.mode)) storeUpdates.queueMode = request.queueMode || request.options.mode;
+      await chrome.storage.local.set(storeUpdates);
+
       // Cari item PENDING mulai dari runnerState.currentIndex, lalu fallback dari awal (index 0)
       let startIndex = findNextPendingIndex(queue, runnerState.currentIndex);
       if (startIndex === -1) {
@@ -1906,8 +1912,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return;
       }
 
-      await chrome.storage.local.set({ runnerState, runnerOptions: runnerState.options });
-      broadcastToPopup({ action: 'QUEUE_UPDATED', queue });
+      broadcastToPopup({
+        action: 'QUEUE_UPDATED',
+        queue,
+        excelFileName: request.excelFileName || ''
+      });
       processQueueItem(queue, startIndex);
       sendResponse({ success: true, startIndex });
     })();
@@ -2125,7 +2134,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === 'GET_RUNNER_STATE') {
     (async () => {
-      const data = await chrome.storage.local.get(['runnerState', 'fasihQueue', 'runnerOptions']);
+      const data = await chrome.storage.local.get(['runnerState', 'fasihQueue', 'runnerOptions', 'excelFileName', 'queueMode']);
       const storedState = data.runnerState || runnerState;
       const queue = data.fasihQueue || [];
       const options = data.runnerOptions || runnerState.options;
@@ -2162,7 +2171,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({
         runnerState: runnerState.status ? runnerState : storedState,
         queue,
-        options
+        options,
+        excelFileName: data.excelFileName,
+        queueMode: data.queueMode
       });
     })();
     return true;

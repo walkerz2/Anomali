@@ -139,6 +139,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let queueMode = null;     // mode file yang sedang dimuat
   let allRows = [];         // seluruh baris dari file Excel (sebelum dipotong rentang baris)
   let queue = [];
+  const inMemoryOriginalRows = new Map(); // Kolom mentah asli Excel khusus untuk kebutuhan Export
   let runnerStatus = 'IDLE';
   let ntbValidationResult = null; // Hasil validasi dataset NTB ({ items, summary })
   let ntbFilterMode = 'ALL';      // 'ALL' | 'ONLY_1' | 'ONLY_0'
@@ -283,6 +284,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   btnClearFile.addEventListener('click', () => clearQueue());
 
   async function clearQueue() {
+    inMemoryOriginalRows.clear();
     allRows = [];
     queue = [];
     queueMode = null;
@@ -361,8 +363,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           apiValues,
           apiRemarks,
           status: error ? 'INVALID' : 'PENDING',
-          error,
-          originalRow: row
+          error
         };
       });
   }
@@ -411,8 +412,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           targetUsaha: val(row, K.nama),
           status: error ? 'INVALID' : 'PENDING',
           error,
-          kbliTask,
-          originalRow: row
+          kbliTask
         };
       });
   }
@@ -480,6 +480,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         alert('Sheet data kosong.');
         return;
       }
+      inMemoryOriginalRows.clear();
+      rows.forEach((r, idx) => inMemoryOriginalRows.set(idx, r));
 
       if (activeMode === 'NTB') {
         const defaultPeriodeId = (periodeInput && periodeInput.value.trim()) || 'fd68e454-ba45-4b85-8205-f3bf777ded24';
@@ -585,7 +587,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function showFileInfo(name) {
-    fileName.textContent = name;
+    if (name && name !== '-') fileName.textContent = name;
     const totalAll = allRows.length || queue.length;
     const { startRow, endRow, isFiltered } = getRowRangeBounds(totalAll);
     fileRowCount.textContent = isFiltered ? `${queue.length}/${totalAll} (Brs ${startRow}-${endRow})` : `${queue.length} baris`;
@@ -961,13 +963,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     renderQueueTable();
 
+    const activeFileName = (fileName && fileName.textContent && fileName.textContent !== '-') ? fileName.textContent : (excelInput.files && excelInput.files[0] ? excelInput.files[0].name : 'File Excel');
+    chrome.storage.local.set({
+      fasihQueue: sanitizeRowsForStorage(queue),
+      excelFileName: activeFileName,
+      queueMode: queueMode || activeMode,
+      runnerState: { status: 'RUNNING', currentIndex: 0, activeTabId: null, consecutiveFailures: 0, options: getOptions() }
+    }).catch(() => {});
+
     saveSettings();
     showRunningButtons();
     setRunnerStatus('RUNNING');
     chrome.runtime.sendMessage({
       action: 'START_QUEUE',
       options: getOptions(),
-      queue: queue
+      queue: sanitizeRowsForStorage(queue),
+      excelFileName: activeFileName,
+      queueMode: queueMode || activeMode
     }, (res) => {
       if (chrome.runtime.lastError) {
         console.warn('Error saat mengirim START_QUEUE:', chrome.runtime.lastError.message);
@@ -1209,7 +1221,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const pcVal = (pcNameInput && pcNameInput.value.trim()) || 'PC 1';
       const rowsOut = queue.map((item, idx) => {
         const rowNum = item.excelRowNum || (idx + 1);
-        const base = item.originalRow ? { No_Baris_Excel: rowNum, PC: pcVal, ...item.originalRow } : { No_Baris_Excel: rowNum, PC: pcVal, link_fasih_sm: item.link_fasih_sm };
+        const orig = inMemoryOriginalRows.get(item.index) || item.originalRow || {};
+        const base = Object.keys(orig).length ? { No_Baris_Excel: rowNum, PC: pcVal, ...orig } : { No_Baris_Excel: rowNum, PC: pcVal, link_fasih_sm: item.link_fasih_sm };
         base.menu = item.mode === 'DC1' ? '#DC_01' : (item.mode === 'API' ? (item.ntbInfo ? 'NTB_API' : 'API') : (item.ntbInfo ? 'NTB_DC0' : '#DC_00'));
         if (item.ntbInfo) {
           base.Status_NTB = item.ntbInfo.status;
@@ -1401,37 +1414,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     setActiveMode(queueMode || data.activeMode || 'DC0', { silent: true });
     renderQueueTable();
 
-    const st = data.runnerState && data.runnerState.status;
-    setRunnerStatus(st || 'IDLE');
+    const st = (data.runnerState && data.runnerState.status) || 'IDLE';
+    setRunnerStatus(st);
     if (st === 'RUNNING') {
       showRunningButtons();
-      let activeIdx = (data.runnerState && data.runnerState.currentIndex) || 0;
-      let currentItem = queue[activeIdx];
-      if (currentItem && (currentItem.status === 'SKIPPED' || currentItem.status === 'SUCCESS' || currentItem.status === 'FAILED' || currentItem.status === 'DRYRUN')) {
-        const nextActiveIdx = queue.findIndex((it, idx) => idx > activeIdx && (it.status === 'PROCESSING' || it.status === 'OPENING_TAB' || it.status === 'PENDING'));
-        if (nextActiveIdx !== -1) {
-          activeIdx = nextActiveIdx;
-          currentItem = queue[activeIdx];
-        }
-      }
-      const usahaName = currentItem ? (currentItem.nama_usaha || `Baris #${activeIdx + 1}`) : '';
-      liveStatusText.textContent = usahaName ? `Sedang memproses: ${usahaName}` : 'Sedang memproses antrian...';
-      // Sinkronkan & bangunkan runner background jika sempat tertahan di antara baris
-      chrome.runtime.sendMessage({ action: 'GET_RUNNER_STATE' }, (res) => {
-        if (chrome.runtime.lastError || !res) return;
-        if (res.queue && res.queue.length) {
-          queue = res.queue;
-          renderQueueTable();
-          updateProgressUI();
-        }
-        if (res.runnerState && res.runnerState.status !== 'RUNNING') {
-          setRunnerStatus(res.runnerState.status || 'IDLE');
-          if (res.runnerState.status === 'IDLE') showIdleButtons();
-        }
-        if (res.runnerState && res.runnerState.serverHealth) {
-          updateThrottleUI(res.runnerState.serverHealth);
-        }
-      });
     } else if (st === 'PAUSED') {
       showRunningButtons();
       btnPause.classList.add('hidden');
@@ -1440,6 +1426,61 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else {
       showIdleButtons();
     }
+
+    // Selalu sinkronkan state dan antrian live dari runner background
+    chrome.runtime.sendMessage({ action: 'GET_RUNNER_STATE' }, (res) => {
+      if (chrome.runtime.lastError || !res) return;
+      const state = res.runnerState || {};
+      const runnerSt = state.status || st;
+
+      if (res.queue && res.queue.length) {
+        queue = res.queue;
+        if (!allRows.length) allRows = queue;
+        if (res.queueMode) queueMode = res.queueMode;
+        const currentFileName = res.excelFileName || data.excelFileName || (fileName && fileName.textContent !== '-' ? fileName.textContent : '') || 'File Excel';
+        showFileInfo(currentFileName);
+        renderQueueTable();
+        updateProgressUI();
+      }
+
+      setRunnerStatus(runnerSt);
+      if (runnerSt === 'RUNNING') {
+        showRunningButtons();
+        let activeIdx = state.currentIndex || 0;
+        let currentItem = queue[activeIdx];
+        if (currentItem && (currentItem.status === 'SKIPPED' || currentItem.status === 'SUCCESS' || currentItem.status === 'FAILED' || currentItem.status === 'DRYRUN')) {
+          const nextActiveIdx = queue.findIndex((it, idx) => idx > activeIdx && (it.status === 'PROCESSING' || it.status === 'OPENING_TAB' || it.status === 'PENDING'));
+          if (nextActiveIdx !== -1) {
+            activeIdx = nextActiveIdx;
+            currentItem = queue[activeIdx];
+          }
+        }
+        const usahaName = currentItem ? (currentItem.nama_usaha || `Baris #${activeIdx + 1}`) : '';
+        liveStatusText.textContent = usahaName ? `Sedang memproses: ${usahaName}` : 'Sedang memproses antrian...';
+      } else if (runnerSt === 'PAUSED') {
+        showRunningButtons();
+        btnPause.classList.add('hidden');
+        btnResume.classList.remove('hidden');
+        liveStatusText.textContent = 'Dijeda.';
+      } else {
+        if (queue.length > 0) {
+          const allDone = queue.every(i => ['SUCCESS', 'SKIPPED', 'FAILED', 'DRYRUN'].includes(i.status));
+          if (allDone) {
+            setRunnerStatus('COMPLETED');
+            liveStatusText.textContent = 'Semua antrian selesai diproses.';
+          } else {
+            setRunnerStatus('IDLE');
+          }
+        } else {
+          setRunnerStatus('IDLE');
+        }
+        showIdleButtons();
+      }
+
+      if (state.serverHealth) {
+        updateThrottleUI(state.serverHealth);
+      }
+    });
   }
 
   await loadSavedState();
@@ -1546,6 +1587,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (request.queue && Array.isArray(request.queue)) {
         queue = request.queue;
       }
+      if (request.excelFileName) {
+        fileName.textContent = request.excelFileName;
+      }
+      if (queue.length > 0) {
+        showFileInfo((fileName && fileName.textContent !== '-') ? fileName.textContent : (request.excelFileName || 'File Excel'));
+      }
       btnExportExcel.disabled = !queue.length;
       renderQueueTable();
       updateProgressUI();
@@ -1557,6 +1604,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           liveStatusText.textContent = `Selesai: ${item.nama_usaha || `Baris #${request.index + 1}`}`;
         } else if (item.status === 'DRYRUN') {
           liveStatusText.textContent = `Uji OK: ${item.nama_usaha || `Baris #${request.index + 1}`}`;
+        } else if (item.status === 'PROCESSING' || item.status === 'OPENING_TAB') {
+          liveStatusText.textContent = `Sedang memproses: ${item.nama_usaha || `Baris #${request.index + 1}`}`;
         }
       }
     }
