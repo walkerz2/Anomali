@@ -950,3 +950,17 @@ body {
   text-decoration: underline;
   padding: 0;
 }
+
+.keepalive-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: -4px 0 8px 24px;
+}
+.keepalive-status.ok {
+  color: #2e7d27;
+  font-weight: 500;
+}
+.keepalive-status.err {
+  color: #b42318;
+  font-weight: 600;
+}

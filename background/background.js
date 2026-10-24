@@ -2019,6 +2019,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   // Meneruskan update step dari content script ke popup
+  if (request.action === 'KEEPALIVE_CONFIG') {
+    setupKeepAlive().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+  if (request.action === 'KEEPALIVE_NOW') {
+    keepAliveTick().finally(() => sendResponse({ ok: true }));
+    return true;
+  }
+
   if (request.action === 'REVOKE_TRIGGERED') {
       runnerState.tabRevokedRecently = true;
     }
@@ -2043,3 +2052,63 @@ chrome.runtime.onInstalled.addListener(async () => {
     await chrome.storage.local.set({ runnerState: { ...data.runnerState, status: 'IDLE', activeTabId: null } });
   }
 });
+
+
+// ===================== Penjaga sesi FASIH (Keep-Alive) =====================
+// Setiap 4 menit menyapa server FASIH lewat tab FASIH yang terbuka (permintaan ringan bertanda login),
+// sehingga sesi tidak habis karena lama diam. Tab FASIH juga diproteksi agar tidak ditidurkan oleh Chrome Memory Saver.
+// Sesuai permintaan: alur login otomatis diserahkan sepenuhnya ke fitur login SSO Eksternal yang sudah ada.
+const KEEPALIVE_ALARM = 'tuntasKeepAlive';
+const KEEPALIVE_DEFAULT_SP = 'fd68e454-ba45-4b85-8205-f3bf777ded24';
+
+async function setupKeepAlive() {
+  const { tuntasKeepAliveOn } = await chrome.storage.local.get(['tuntasKeepAliveOn']);
+  if (tuntasKeepAliveOn === false) {
+    if (chrome.alarms) await chrome.alarms.clear(KEEPALIVE_ALARM);
+    chrome.action.setBadgeText({ text: '' }).catch(() => {});
+    return;
+  }
+  if (chrome.alarms) {
+    const a = await chrome.alarms.get(KEEPALIVE_ALARM);
+    if (!a) chrome.alarms.create(KEEPALIVE_ALARM, { delayInMinutes: 1, periodInMinutes: 4 });
+  }
+}
+
+async function keepAliveTick() {
+  const { tuntasKeepAliveOn, runnerOptions } = await chrome.storage.local.get(['tuntasKeepAliveOn', 'runnerOptions']);
+  if (tuntasKeepAliveOn === false) return;
+  const periodeId = (runnerOptions && runnerOptions.periodeId) || KEEPALIVE_DEFAULT_SP;
+  const tabs = await chrome.tabs.query({ url: 'https://fasih-sm.bps.go.id/*' });
+  let res = null;
+  for (const t of tabs) {
+    chrome.tabs.update(t.id, { autoDiscardable: false }).catch(() => {});
+    if (res || t.discarded || t.status !== 'complete') continue;
+    try {
+      res = await chrome.tabs.sendMessage(t.id, { action: 'KEEPALIVE_PING', periodeId });
+    } catch (e) {}
+  }
+  if (!res) {
+    // Tidak ada tab FASIH yang siap: coba sapa dari latar
+    try {
+      const r = await fetch(`https://fasih-sm.bps.go.id/app/api/survey/api/v1/users/myinfo?surveyPeriodId=${encodeURIComponent(periodeId)}`, { credentials: 'include', cache: 'no-store' });
+      const ct = r.headers.get('content-type') || '';
+      res = r.ok && ct.includes('json') ? { ok: true } : { ok: false, msg: tabs.length ? 'tab FASIH belum siap' : 'buka satu tab FASIH agar sesi bisa dijaga' };
+    } catch (e) {
+      res = { ok: false, msg: 'buka satu tab FASIH agar sesi bisa dijaga' };
+    }
+  }
+  await chrome.storage.local.set({ tuntasKeepAlive: { ...res, at: Date.now() } });
+  chrome.action.setBadgeBackgroundColor({ color: '#E53935' }).catch(() => {});
+  chrome.action.setBadgeText({ text: res.expired ? '!' : '' }).catch(() => {});
+}
+
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name === KEEPALIVE_ALARM) keepAliveTick().catch(() => {});
+});
+chrome.runtime.onInstalled.addListener(() => {
+  setupKeepAlive().catch(() => {});
+});
+chrome.runtime.onStartup.addListener(() => {
+  setupKeepAlive().catch(() => {});
+});
+setupKeepAlive().catch(() => {});

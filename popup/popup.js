@@ -39,6 +39,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnTestWebhook = $('btnTestWebhook');
   const checkEnableWebhook = $('checkEnableWebhook');
   const checkAutoSsoLogin = $('checkAutoSsoLogin');
+  const checkKeepAlive = $('checkKeepAlive');
+  const keepAliveStatus = $('keepAliveStatus');
   const checkAutoRevoke = $('checkAutoRevoke');
   const checkRequireConfirm = $('checkRequireConfirm');
   const checkAutoApprove = $('checkAutoApprove');
@@ -1364,6 +1366,45 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   await loadSavedState();
+
+    // ---------- Jaga sesi FASIH tetap aktif ----------
+  function renderKeepAlive(k) {
+    if (!keepAliveStatus) return;
+    if (!k || !k.at) {
+      keepAliveStatus.className = 'keepalive-status';
+      keepAliveStatus.textContent = 'Status sesi: belum diperiksa';
+      return;
+    }
+    const jam = new Date(k.at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    keepAliveStatus.className = 'keepalive-status ' + (k.ok ? 'ok' : (k.expired ? 'err' : ''));
+    keepAliveStatus.textContent = k.ok
+      ? `Sesi FASIH aktif — terakhir diperpanjang ${jam}${k.user ? ` (${k.user})` : ''}`
+      : k.expired
+      ? `Sesi FASIH habis (${jam}) — silakan login SSO Eksternal kembali.`
+      : `Belum bisa diperiksa (${jam}): ${k.msg || ''}`;
+  }
+
+  if (checkKeepAlive) {
+    chrome.storage.local.get(['tuntasKeepAlive', 'tuntasKeepAliveOn'], (r) => {
+      checkKeepAlive.checked = r.tuntasKeepAliveOn !== false;
+      renderKeepAlive(r.tuntasKeepAlive);
+    });
+
+    checkKeepAlive.addEventListener('change', async () => {
+      await chrome.storage.local.set({ tuntasKeepAliveOn: checkKeepAlive.checked });
+      chrome.runtime.sendMessage({ action: 'KEEPALIVE_CONFIG' }).catch(() => {});
+      if (!checkKeepAlive.checked && keepAliveStatus) {
+        keepAliveStatus.className = 'keepalive-status';
+        keepAliveStatus.textContent = 'Penjaga sesi dimatikan.';
+      }
+    });
+
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.tuntasKeepAlive) renderKeepAlive(changes.tuntasKeepAlive.newValue);
+    });
+
+    chrome.runtime.sendMessage({ action: 'KEEPALIVE_NOW' }).catch(() => {});
+  }
 
   // ---------- Pesan dari background ----------
   chrome.runtime.onMessage.addListener((request) => {

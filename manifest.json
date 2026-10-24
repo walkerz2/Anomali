@@ -24,7 +24,8 @@
     "unlimitedStorage",
     "tabs",
     "activeTab",
-    "scripting"
+    "scripting",
+    "alarms"
   ],
   "host_permissions": [
     "https://fasih-sm.bps.go.id/*",

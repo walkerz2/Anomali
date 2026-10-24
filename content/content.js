@@ -4944,6 +4944,31 @@
       return true;
     }
 
+    // Penjaga sesi: sapa server FASIH (permintaan ringan bertanda login) agar sesi tidak habis karena diam
+    if (request.action === 'KEEPALIVE_PING') {
+      (async () => {
+        if (isLoginPage() || findSessionExpiredElement() || findSsoEksternalButton()) {
+          return { ok: false, expired: true, msg: 'halaman masuk/login FASIH tampil' };
+        }
+        const sp = request.periodeId || 'fd68e454-ba45-4b85-8205-f3bf777ded24';
+        try {
+          const r = await fetch(`${location.origin}/app/api/survey/api/v1/users/myinfo?surveyPeriodId=${encodeURIComponent(sp)}`,
+            { credentials: 'include', cache: 'no-store', redirect: 'follow' });
+          const ct = r.headers.get('content-type') || '';
+          if (r.status === 401 || r.status === 403 || (r.ok && !ct.includes('json'))) {
+            return { ok: false, expired: true, msg: `HTTP ${r.status}` };
+          }
+          if (!r.ok) return { ok: false, msg: `HTTP ${r.status}` };
+          const j = await r.json().catch(() => null);
+          const u = j && ((j.data && j.data.username) || j.username);
+          return { ok: true, user: u || '' };
+        } catch (e) {
+          return { ok: false, msg: e.message || String(e) };
+        }
+      })().then(sendResponse);
+      return true;
+    }
+
     if (request.action === 'PING') {
       sendResponse({ status: 'PONG', url: window.location.href, state: executionState });
       return false;

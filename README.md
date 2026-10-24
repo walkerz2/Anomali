@@ -148,7 +148,8 @@ Untuk setiap baris pada file Excel:
 
 ## 📖 Cara Menggunakan
 
-1. **Akun FASIH & Auto Login SSO Eksternal**:
+1. **Akun FASIH, Auto Login SSO Eksternal & Penjaga Sesi**:
+   - **Jaga Sesi FASIH Tetap Aktif**: Memastikan sesi Anda di FASIH-SM tidak kedaluwarsa saat browser didiamkan. Cukup biarkan minimal satu tab `fasih-sm.bps.go.id` terbuka di latar belakang. Ekstensi akan mengirimkan *heartbeat* ringan ke server tiap 4 menit dan mengunci tab agar tidak dibekukan (*autoDiscardable: false*).
    - Ekstensi dilengkapi fitur **Auto Login SSO Eksternal**: jika sesi berakhir atau tab dialihkan ke halaman login SSO BPS, bot akan otomatis mengklik **"Lanjutkan SSO Eksternal"**, memasukkan email `Haerulhaeruddin003@gmail.com` dan kata sandi `Mitra123`, lalu mengirim formulir login dan kembali melanjutkan antrian.
    - Anda juga dapat menyesuaikan email/kata sandi SSO kapan saja melalui menu Pengaturan pada popup.
 2. **Buka Ekstensi**:
@@ -159,6 +160,7 @@ Untuk setiap baris pada file Excel:
 4. **Atur Pengaturan (Opsional)**:
    - **Email & Password SSO**: Default `xxxxxx@gmail.com` & `XXXXXX` (bisa diubah di popup).
    - **Auto Login SSO Eksternal**: Centang untuk otomatis login saat sesi kedaluwarsa.
+    - **Jaga Sesi FASIH Tetap Aktif (Keep-Alive)**: Centang (default aktif) agar ekstensi secara otomatis menyapa server FASIH-SM setiap 4 menit lewat tab FASIH yang terbuka. Menjaga sesi login tidak habis karena lama diam dan mencegah tab ditidurkan (*discarded*) oleh Memory Saver Chrome. Status sesi (aktif/habis beserta jam terakhir diperpanjang) terpantau langsung di popup, dan ikon ekstensi menampilkan tanda seru merah (**!**) bila sesi habis.
    - **Catatan Utama**: Default `#DC_00` (satu catatan saja, tanpa catatan tambahan).
    - **Jeda per Langkah**: Default `1.5` detik (dapat diperbesar menjadi 2.0 atau 2.5 jika koneksi server FASIH sedang lambat).
    - **Tampilkan konfirmasi sebelum kirim (untuk cek kesesuaian)**: Centang jika Anda ingin memeriksa isian terlebih dahulu sebelum survei dikirim. Ekstensi akan menampilkan modal konfirmasi interaktif di halaman dengan opsi:
