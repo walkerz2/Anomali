@@ -563,6 +563,86 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnExportExcel.disabled = queue.length === 0;
   }
 
+
+  // ---------- Adaptive Throttling UI ----------
+  function updateThrottleUI(state) {
+    if (!state || !throttleBadge) return;
+    const isEnabled = state.enabled !== false;
+    const baseSec = ((parseFloat(delayInput.value) || ((state.baseStepDelay || 1500) / 1000) || 1.5)).toFixed(1);
+
+    if (!isEnabled) {
+      throttleBadge.textContent = '⚪ Nonaktif';
+      throttleBadge.className = 'throttle-badge throttle-disabled';
+      if (throttleSpeedInfo) throttleSpeedInfo.innerHTML = `Jeda langkah: <b>${baseSec}s (Tetap)</b>`;
+      if (throttleLatencyInfo) throttleLatencyInfo.innerHTML = 'Respon server: <b>Tidak dipantau</b>';
+      if (throttleQueueDelayInfo) throttleQueueDelayInfo.classList.add('hidden');
+      return;
+    }
+
+    const mult = typeof state.multiplier === 'number' ? state.multiplier : 1.0;
+    const effSec = (parseFloat(baseSec) * mult).toFixed(1);
+    const lvl = state.level || 'NORMAL';
+
+    if (lvl === 'HEAVY') {
+      throttleBadge.textContent = `🔴 ${mult.toFixed(1)}x Sangat Lambat`;
+      throttleBadge.className = 'throttle-badge throttle-heavy';
+    } else if (lvl === 'MODERATE') {
+      throttleBadge.textContent = `🟠 ${mult.toFixed(1)}x Beban Tinggi`;
+      throttleBadge.className = 'throttle-badge throttle-moderate';
+    } else if (lvl === 'MILD') {
+      throttleBadge.textContent = `🟡 ${mult.toFixed(1)}x Melambat`;
+      throttleBadge.className = 'throttle-badge throttle-mild';
+    } else {
+      throttleBadge.textContent = `🟢 ${mult.toFixed(1)}x Normal`;
+      throttleBadge.className = 'throttle-badge throttle-normal';
+    }
+
+    if (throttleSpeedInfo) {
+      throttleSpeedInfo.innerHTML = `Jeda langkah: <b>${effSec}s</b> (${mult.toFixed(1)}x)`;
+    }
+
+    if (throttleLatencyInfo) {
+      const latMs = state.avgLatencyMs || state.lastLatencyMs || 0;
+      let latText = 'Normal (<1.5s)';
+      if (latMs >= 8000) latText = `Kritis (~${(latMs / 1000).toFixed(1)}s)`;
+      else if (latMs >= 4000) latText = `Tinggi (~${(latMs / 1000).toFixed(1)}s)`;
+      else if (latMs >= 1800) latText = `Melambat (~${(latMs / 1000).toFixed(1)}s)`;
+      else if (latMs > 0) latText = `Cepat (~${(latMs / 1000).toFixed(1)}s)`;
+      throttleLatencyInfo.innerHTML = `Respon server: <b>${latText}</b>`;
+    }
+
+    if (throttleQueueDelayInfo) {
+      if (state.interItemDelay > 0) {
+        throttleQueueDelayInfo.classList.remove('hidden');
+        throttleQueueDelayInfo.innerHTML = `• Jeda antrian: <b>+${(state.interItemDelay / 1000).toFixed(1)}s</b>`;
+      } else {
+        throttleQueueDelayInfo.classList.add('hidden');
+      }
+    }
+  }
+
+  if (checkAdaptiveThrottling) {
+    checkAdaptiveThrottling.addEventListener('change', () => {
+      chrome.runtime.sendMessage({
+        action: 'SET_ADAPTIVE_THROTTLE',
+        enabled: checkAdaptiveThrottling.checked
+      }, (res) => {
+        if (!chrome.runtime.lastError && res && res.throttleState) {
+          updateThrottleUI(res.throttleState);
+        }
+      });
+      saveSettings();
+    });
+  }
+
+  if (delayInput) {
+    delayInput.addEventListener('input', () => {
+      chrome.runtime.sendMessage({ action: 'GET_THROTTLE_STATE' }, (res) => {
+        if (!chrome.runtime.lastError && res) updateThrottleUI(res);
+      });
+    });
+  }
+
   // ---------- Opsi ----------
   function getOptions() {
     return {
@@ -573,6 +653,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       catatanKbliDiganti: catatanDigantiInput.value.trim() || '#DC_01',
       periodeId: periodeInput.value.trim(),
       stepDelay: (parseFloat(delayInput.value) || 1.5) * 1000,
+      enableAdaptiveThrottling: checkAdaptiveThrottling ? checkAdaptiveThrottling.checked : true,
       rowStart: rowStartInput && rowStartInput.value ? parseInt(rowStartInput.value, 10) : '',
       rowEnd: rowEndInput && rowEndInput.value ? parseInt(rowEndInput.value, 10) : '',
       pcName: (pcNameInput && pcNameInput.value.trim()) || 'PC 1',
@@ -1289,6 +1370,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (o.ssoPassword && ssoPasswordInput) ssoPasswordInput.value = o.ssoPassword;
     if (o.pcName && pcNameInput) pcNameInput.value = o.pcName;
     if (webhookUrlInput) webhookUrlInput.value = o.webhookUrl || DEFAULT_WEBHOOK_URL;
+    if (o.enableAdaptiveThrottling !== undefined && checkAdaptiveThrottling) checkAdaptiveThrottling.checked = o.enableAdaptiveThrottling;
     if (o.enableWebhook !== undefined && checkEnableWebhook) checkEnableWebhook.checked = o.enableWebhook;
     if (o.autoSsoLogin !== undefined && checkAutoSsoLogin) checkAutoSsoLogin.checked = o.autoSsoLogin;
     if (o.autoRevoke !== undefined && checkAutoRevoke) checkAutoRevoke.checked = o.autoRevoke;
@@ -1421,6 +1503,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           liveStatusText.textContent = `Selesai: ${item.nama_usaha || `Baris #${request.index + 1}`}`;
         }
       }
+    }
+    if (request.action === 'THROTTLE_STATE_UPDATED') {
+      updateThrottleUI(request.throttleState);
     }
     if (request.action === 'UPDATE_STEP') {
       liveStatusText.textContent = `${request.step}: ${request.details}`;

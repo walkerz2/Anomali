@@ -162,7 +162,14 @@ Untuk setiap baris pada file Excel:
    - **Auto Login SSO Eksternal**: Centang untuk otomatis login saat sesi kedaluwarsa.
     - **Jaga Sesi FASIH Tetap Aktif (Keep-Alive)**: Centang (default aktif) agar ekstensi secara otomatis menyapa server FASIH-SM setiap 4 menit lewat tab FASIH yang terbuka. Menjaga sesi login tidak habis karena lama diam dan mencegah tab ditidurkan (*discarded*) oleh Memory Saver Chrome. Status sesi (aktif/habis beserta jam terakhir diperpanjang) terpantau langsung di popup, dan ikon ekstensi menampilkan tanda seru merah (**!**) bila sesi habis.
    - **Catatan Utama**: Default `#DC_00` (satu catatan saja, tanpa catatan tambahan).
-   - **Jeda per Langkah**: Default `1.5` detik (dapat diperbesar menjadi 2.0 atau 2.5 jika koneksi server FASIH sedang lambat).
+   - **Jeda per Langkah**: Default `1.5` detik (dapat disesuaikan secara manual dari 0.5 s.d. 10 detik).
+   - **Adaptive Throttling (Penyesuaian Kecepatan Otomatis)**: Centang (default aktif) agar bot secara dinamis memantau latensi dan beban server FASIH BPS (waktu muat tab, durasi respon API, dan rendering SPA) serta menyesuaikan kecepatan eksekusi secara cerdas:
+     - **🟢 1.0x Normal (<1.5s)**: Berjalan pada kecepatan penuh standar (jeda 1.5s).
+     - **🟡 1.5x Melambat (1.8s - 4.0s)**: Menyesuaikan jeda langkah menjadi ~2.3s dan menambahkan jeda antar-antrian +1.5s.
+     - **🟠 2.0x Beban Tinggi (4.0s - 8.0s)**: Menyesuaikan jeda langkah menjadi ~3.0s dan menambahkan jeda antar-antrian +3.5s.
+     - **🔴 3.0x Sangat Lambat (>8.0s / timeout / error 429 / 503)**: Menyesuaikan jeda langkah menjadi ~4.5s dan menambahkan jeda antar-antrian +7.0s untuk mencegah kegagalan massal atau trip circuit breaker.
+     - **Pemulihan Otomatis (Cool-down)**: Begitu server kembali merespons cepat secara konsisten (2 pengukuran berurutan), kecepatan bot secara bertahap diturunkan kembali ke normal (1.0x).
+     - **Live Status Monitor**: Memantau badge kecepatan, jeda aktif, dan latensi terkini server secara transparan di pop-up ekstensi.
    - **Tampilkan konfirmasi sebelum kirim (untuk cek kesesuaian)**: Centang jika Anda ingin memeriksa isian terlebih dahulu sebelum survei dikirim. Ekstensi akan menampilkan modal konfirmasi interaktif di halaman dengan opsi:
      - *Ya, Sudah Sesuai & Lanjut Kirim*
      - *Lewati Kirim (Simpan Catatan & Lanjut Antrian)*

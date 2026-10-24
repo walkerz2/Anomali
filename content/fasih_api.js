@@ -23,8 +23,64 @@
   const xsrf = () => decodeURIComponent((document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/) || [])[1] || '');
   const jh = () => ({ 'Content-Type': 'application/json', 'X-XSRF-TOKEN': xsrf() });
 
+  // Helper fetch adaptif dengan retry & exponential backoff saat server lambat / error 429/502/503/504
+  async function adaptiveFetch(url, options = {}, { maxRetries = 2, baseBackoffMs = 1500 } = {}) {
+    let lastErr = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const t0 = Date.now();
+      try {
+        const r = await fetch(url, options);
+        const dur = Date.now() - t0;
+        if (r.status === 429 || r.status === 502 || r.status === 503 || r.status === 504) {
+          if (attempt < maxRetries) {
+            const backoff = baseBackoffMs * Math.pow(2, attempt);
+            console.warn(`[TUNTAS API] Server merespons HTTP ${r.status}. Jeda adaptif ${backoff}ms sebelum mencoba lagi...`);
+            try {
+              chrome.runtime.sendMessage({
+                action: 'RECORD_SERVER_LATENCY',
+                source: 'API_CALL',
+                duration: dur + backoff,
+                isError: true,
+                errorMsg: `HTTP ${r.status}`
+              });
+            } catch (_) {}
+            await new Promise((resolve) => setTimeout(resolve, backoff));
+            continue;
+          }
+        }
+        if (dur > 2000) {
+          try {
+            chrome.runtime.sendMessage({
+              action: 'RECORD_SERVER_LATENCY',
+              source: 'API_CALL',
+              duration: dur
+            });
+          } catch (_) {}
+        }
+        return r;
+      } catch (e) {
+        lastErr = e;
+        if (attempt < maxRetries) {
+          const backoff = baseBackoffMs * Math.pow(2, attempt);
+          console.warn(`[TUNTAS API] Fetch error: ${e.message}. Menunggu ${backoff}ms...`);
+          try {
+            chrome.runtime.sendMessage({
+              action: 'RECORD_SERVER_LATENCY',
+              source: 'API_CALL',
+              duration: Date.now() - t0 + backoff,
+              isError: true,
+              errorMsg: e.message
+            });
+          } catch (_) {}
+          await new Promise((resolve) => setTimeout(resolve, backoff));
+        }
+      }
+    }
+    throw lastErr || new Error('Gagal menghubungi server API FASIH.');
+  }
+
   async function getAssignment(id) {
-    const r = await fetch(`${API}/assignment-general/api/assignment/get-by-assignment-id?assignmentId=${encodeURIComponent(id)}`, { credentials: 'include' });
+    const r = await adaptiveFetch(`${API}/assignment-general/api/assignment/get-by-assignment-id?assignmentId=${encodeURIComponent(id)}`, { credentials: 'include' });
     if (!r.ok) throw new Error(`Gagal membaca assignment (HTTP ${r.status}). Pastikan sudah login FASIH.`);
     const j = await r.json();
     return j.data || j;
@@ -109,13 +165,13 @@
     const key = `${asg.survey_period_id}|${mode}|${doc.templateVersion}`;
     if (schemaCache.has(key)) return schemaCache.get(key);
     const p = (async () => {
-      const per = await fetch(`${API}/survey/api/v1/survey-periods/${asg.survey_period_id}`, { credentials: 'include' }).then((r) => r.json());
+      const per = await adaptiveFetch(`${API}/survey/api/v1/survey-periods/${asg.survey_period_id}`, { credentials: 'include' }).then((r) => r.json());
       const surveyId = (per.data || per).surveyId;
-      const list = await fetch(`${API}/survey/api/v1/survey-templates/search?surveyId=${surveyId}`, { credentials: 'include' }).then((r) => r.json());
+      const list = await adaptiveFetch(`${API}/survey/api/v1/survey-templates/search?surveyId=${surveyId}`, { credentials: 'include' }).then((r) => r.json());
       const tpls = list.data || list;
       const t = tpls.find((x) => x.mode === mode && x.templateVersion === doc.templateVersion) || tpls.find((x) => x.mode === mode) || tpls[0];
       if (!t) throw new Error('Template form tidak ditemukan');
-      const T = await fetch(`${API}/designer/api/template/file/${t.templateId}?templateVersion=${t.templateVersion}&validationVersion=${t.validationVersion}`,
+      const T = await adaptiveFetch(`${API}/designer/api/template/file/${t.templateId}?templateVersion=${t.templateVersion}&validationVersion=${t.validationVersion}`,
         { credentials: 'include' }).then((r) => r.json());
       const S = new Map();
       (function walk(node, section) {
@@ -362,7 +418,7 @@
     if (dryRun) return { zipBytes: zip.length };
     const filename = `${id}_${Date.now()}.zip`;
     const md5 = md5hex(zip);
-    const pr = await fetch(`${API}/assignment-submit/api/assignment/s3/edit/presign-url?surveyPeriodId=${sp}`, {
+    const pr = await adaptiveFetch(`${API}/assignment-submit/api/assignment/s3/edit/presign-url?surveyPeriodId=${sp}`, {
       method: 'POST', credentials: 'include', headers: jh(), body: JSON.stringify({ assignmentId: id, fileNames: [filename] }) });
     if (!pr.ok) throw new Error(`presign HTTP ${pr.status}: ${(await pr.text()).slice(0, 150)}`);
     const pj = await pr.json();
@@ -377,7 +433,7 @@
       surveyPeriodeId: sp, assignmentId: id, createStatus: 'false', draftStatus: 'false',
       regionId: asg.region && asg.region._id, sourceFrom: 'SCM-EDIT' };
     for (let i = 1; i <= 10; i++) { const v = asg['data' + i]; body['data' + i] = v == null ? '' : String(v); }
-    const cm = await fetch(`${API}/assignment-submit/api/assignment/s3/edit?surveyPeriodId=${sp}`, {
+    const cm = await adaptiveFetch(`${API}/assignment-submit/api/assignment/s3/edit?surveyPeriodId=${sp}`, {
       method: 'POST', credentials: 'include', headers: jh(), body: JSON.stringify(body) });
     const cmTxt = await cm.text();
     if (!cm.ok) throw new Error(`simpan HTTP ${cm.status}: ${cmTxt.slice(0, 200)}`);
@@ -387,7 +443,7 @@
 
   let myInfoCache = null;
   async function myUsername(sp) {
-    if (!myInfoCache) myInfoCache = fetch(`${API}/survey/api/v1/users/myinfo?surveyPeriodId=${sp}`, { credentials: 'include' })
+    if (!myInfoCache) myInfoCache = adaptiveFetch(`${API}/survey/api/v1/users/myinfo?surveyPeriodId=${sp}`, { credentials: 'include' })
       .then((r) => r.json()).then((j) => (j.data || j).username).catch((e) => { myInfoCache = null; throw e; });
     return myInfoCache;
   }

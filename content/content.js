@@ -4230,7 +4230,18 @@
       // Cek apakah URL sudah berada pada mode /edit:
       if (checkIsEditUrl(window.location.href)) {
         notifyStep('STEP_1', 'Memuat formulir kuisioner (/edit)...', 'progress');
+        const formWaitStart = Date.now();
         let formReady = await waitForElement(() => isAnyFormBlockPresent() || findTopRightSubmitSurveyButton(), 15000);
+        const formWaitDuration = Date.now() - formWaitStart;
+        if (formWaitDuration > 4000) {
+          try {
+            chrome.runtime.sendMessage({
+              action: 'RECORD_SERVER_LATENCY',
+              source: 'DOM_WAIT',
+              duration: formWaitDuration
+            });
+          } catch (_) {}
+        }
         if (!formReady) {
           if (options.autoSsoLogin !== false && (isLoginPage() || findSsoEksternalButton() || findSessionExpiredElement())) {
             notifyStep('STEP_SSO', 'Sesi login dibutuhkan. Memproses SSO Eksternal...', 'progress');
@@ -4263,7 +4274,18 @@
             notifyStep('STEP_1', 'Tombol Review / Edit ditemukan. Mengklik...', 'progress');
             await humanClick(editOrSso.btn);
             await sleep(getJitterDelay(stepDelay));
+            const formWaitStart2 = Date.now();
             formReady = await waitForElement(isAnyFormBlockPresent, 20000);
+            const formWaitDuration2 = Date.now() - formWaitStart2;
+            if (formWaitDuration2 > 4000) {
+              try {
+                chrome.runtime.sendMessage({
+                  action: 'RECORD_SERVER_LATENCY',
+                  source: 'DOM_WAIT',
+                  duration: formWaitDuration2
+                });
+              } catch (_) {}
+            }
           }
 
           // Jika tombol Edit tidak ada ATAU setelah diklik formulir belum muncul:

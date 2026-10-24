@@ -259,6 +259,10 @@
         </div>
 
         <div class="checkbox-group">
+          <label class="checkbox-label" title="Secara dinamis memantau kecepatan server FASIH dan menyesuaikan jeda langkah serta jeda antrian saat server melambat atau tinggi beban">
+            <input type="checkbox" id="checkAdaptiveThrottling" checked>
+            <span><b>Adaptive Throttling</b> — Penyesuaian kecepatan otomatis saat server melambat</span>
+          </label>
           <label class="checkbox-label">
             <input type="checkbox" id="checkEnableWebhook" checked>
             <span>Kirim notifikasi ke Webhook saat terjadi error / gagal remark / koneksi</span>
@@ -352,6 +356,26 @@
         </div>
         <div class="progress-bar-container">
           <div id="progressBar" class="progress-bar" style="width: 0%;"></div>
+        </div>
+
+        <!-- Status Kecepatan Adaptif & Latensi Server -->
+        <div id="throttleMonitor" class="throttle-monitor">
+          <div class="throttle-header">
+            <div class="throttle-header-left">
+              <svg class="throttle-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+              <span class="throttle-title">Kecepatan &amp; Latensi Server:</span>
+            </div>
+            <span id="throttleBadge" class="throttle-badge throttle-normal">🟢 1.0x Normal</span>
+          </div>
+          <div class="throttle-info-row">
+            <span id="throttleSpeedInfo">Jeda langkah: <b>1.5s</b></span>
+            <span class="throttle-dot-sep">•</span>
+            <span id="throttleLatencyInfo">Respon server: <b>Normal (&lt;1.5s)</b></span>
+            <span id="throttleQueueDelayInfo" class="throttle-queue-delay hidden">• Jeda antrian: <b>+0s</b></span>
+          </div>
         </div>
 
         <div class="live-status-box">

@@ -964,3 +964,94 @@ body {
   color: #b42318;
   font-weight: 600;
 }
+
+/* ===== Adaptive Throttling Live Monitor ===== */
+.throttle-monitor {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  transition: all 0.25s ease;
+}
+
+.throttle-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.throttle-header-left {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  color: var(--navy);
+}
+
+.throttle-icon {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.throttle-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  letter-spacing: 0.2px;
+  transition: all 0.25s ease;
+}
+
+.throttle-badge.throttle-normal {
+  background-color: #E8F5E9;
+  color: #1B5E20;
+  border: 1px solid #C8E6C9;
+}
+
+.throttle-badge.throttle-mild {
+  background-color: #FFF9C4;
+  color: #F57F17;
+  border: 1px solid #FFF59D;
+}
+
+.throttle-badge.throttle-moderate {
+  background-color: #FFE0B2;
+  color: #E65100;
+  border: 1px solid #FFCC80;
+}
+
+.throttle-badge.throttle-heavy {
+  background-color: #FFEBEE;
+  color: #C62828;
+  border: 1px solid #FFCDD2;
+}
+
+.throttle-badge.throttle-disabled {
+  background-color: #ECEFF1;
+  color: #546E7A;
+  border: 1px solid #CFD8DC;
+}
+
+.throttle-info-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+}
+
+.throttle-dot-sep {
+  color: #94a3b8;
+}
+
+.throttle-info-row b {
+  color: var(--text-main);
+}
+
+.throttle-queue-delay b {
+  color: #E65100;
+}

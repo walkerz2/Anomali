@@ -91,6 +91,7 @@ let runnerState = {
     catatanKbliDiganti: '#DC_01',
     periodeId: 'fd68e454-ba45-4b85-8205-f3bf777ded24',
     stepDelay: 1500,
+    enableAdaptiveThrottling: true,
     requireManualConfirm: false,
     autoSubmitSurvey: true,
     closeTabOnComplete: true,
@@ -104,6 +105,225 @@ let runnerState = {
     apiDryRun: true
   }
 };
+
+
+// ==================== ADAPTIVE THROTTLING ENGINE ====================
+/**
+ * Adaptive Throttling Engine:
+ * Secara otomatis memantau latensi dan beban server FASIH BPS (loading tab, pemanggilan API, render SPA)
+ * dan menyesuaikan kecepatan secara cerdas:
+ * 1. Menghitung multiplier jeda (1.0x, 1.5x, 2.0x, 3.0x) saat server melambat atau tinggi beban.
+ * 2. Menambahkan jeda antar-baris antrian (inter-item delay) agar server FASIH tidak terbebani request beruntun.
+ * 3. Memulihkan kecepatan secara bertahap (cool-down) saat respons server kembali cepat dan stabil.
+ */
+const adaptiveThrottleState = {
+  enabled: true,
+  level: 'NORMAL', // 'NORMAL', 'MILD', 'MODERATE', 'HEAVY'
+  multiplier: 1.0,
+  effectiveStepDelay: 1500,
+  interItemDelay: 0,
+  lastLatencyMs: 0,
+  avgLatencyMs: 0,
+  lastSource: 'INIT',
+  recentLatencies: [], // buffer 8 pengukuran terakhir { source, latencyMs, isError, at }
+  consecutiveFast: 0,
+  consecutiveSlow: 0,
+  statusText: 'Server Cepat & Normal (1.0x)'
+};
+
+function getEffectiveStepDelay(baseStepDelay = 1500) {
+  const base = typeof baseStepDelay === 'number' && !isNaN(baseStepDelay) ? baseStepDelay : 1500;
+  if (runnerState.options && runnerState.options.enableAdaptiveThrottling === false) {
+    return base;
+  }
+  const factor = adaptiveThrottleState.multiplier || 1.0;
+  const scaled = Math.round(base * factor);
+  const maxDelay = Math.max(6000, Math.round(base * 3.5));
+  return Math.max(base, Math.min(scaled, maxDelay));
+}
+
+function getAdaptiveInterItemDelay() {
+  if (runnerState.options && runnerState.options.enableAdaptiveThrottling === false) {
+    return 0;
+  }
+  return adaptiveThrottleState.interItemDelay || 0;
+}
+
+function updateThrottleStatus() {
+  const base = (runnerState.options && runnerState.options.stepDelay) || 1500;
+  const eff = getEffectiveStepDelay(base);
+  adaptiveThrottleState.effectiveStepDelay = eff;
+
+  const latSec = (adaptiveThrottleState.avgLatencyMs / 1000).toFixed(1);
+  const latStr = adaptiveThrottleState.avgLatencyMs > 0 ? `~${latSec}s` : '<1.5s';
+
+  if (runnerState.options && runnerState.options.enableAdaptiveThrottling === false) {
+    adaptiveThrottleState.level = 'DISABLED';
+    adaptiveThrottleState.multiplier = 1.0;
+    adaptiveThrottleState.interItemDelay = 0;
+    adaptiveThrottleState.statusText = `Adaptive Nonaktif (Tetap ${(base / 1000).toFixed(1)}s)`;
+  } else if (adaptiveThrottleState.level === 'HEAVY') {
+    adaptiveThrottleState.multiplier = 3.0;
+    adaptiveThrottleState.interItemDelay = 7000;
+    adaptiveThrottleState.statusText = `Server Kritis/Sangat Lambat (3.0x — Jeda: ${(eff / 1000).toFixed(1)}s, Antrian: +7s) • Latensi ${latStr}`;
+  } else if (adaptiveThrottleState.level === 'MODERATE') {
+    adaptiveThrottleState.multiplier = 2.0;
+    adaptiveThrottleState.interItemDelay = 3500;
+    adaptiveThrottleState.statusText = `Beban Server Tinggi (2.0x — Jeda: ${(eff / 1000).toFixed(1)}s, Antrian: +3.5s) • Latensi ${latStr}`;
+  } else if (adaptiveThrottleState.level === 'MILD') {
+    adaptiveThrottleState.multiplier = 1.5;
+    adaptiveThrottleState.interItemDelay = 1500;
+    adaptiveThrottleState.statusText = `Server Melambat (1.5x — Jeda: ${(eff / 1000).toFixed(1)}s, Antrian: +1.5s) • Latensi ${latStr}`;
+  } else {
+    adaptiveThrottleState.level = 'NORMAL';
+    adaptiveThrottleState.multiplier = 1.0;
+    adaptiveThrottleState.interItemDelay = 0;
+    adaptiveThrottleState.statusText = `Server Cepat & Normal (1.0x — Jeda: ${(eff / 1000).toFixed(1)}s) • Latensi ${latStr}`;
+  }
+}
+
+function getThrottlePublicState() {
+  updateThrottleStatus();
+  return {
+    enabled: runnerState.options && runnerState.options.enableAdaptiveThrottling !== false,
+    level: adaptiveThrottleState.level,
+    multiplier: adaptiveThrottleState.multiplier,
+    baseStepDelay: (runnerState.options && runnerState.options.stepDelay) || 1500,
+    effectiveStepDelay: adaptiveThrottleState.effectiveStepDelay,
+    interItemDelay: adaptiveThrottleState.interItemDelay,
+    lastLatencyMs: adaptiveThrottleState.lastLatencyMs,
+    avgLatencyMs: adaptiveThrottleState.avgLatencyMs,
+    statusText: adaptiveThrottleState.statusText
+  };
+}
+
+function recordServerLatency(source, latencyMs, { isError = false, errorMsg = '' } = {}) {
+  if (runnerState.options && runnerState.options.enableAdaptiveThrottling === false) return;
+
+  const lat = Math.max(0, Math.round(latencyMs || 0));
+  adaptiveThrottleState.lastLatencyMs = lat;
+  adaptiveThrottleState.lastSource = source;
+
+  // Simpan dalam buffer circular (maks. 8 data terakhir)
+  adaptiveThrottleState.recentLatencies.push({
+    source,
+    latencyMs: lat,
+    isError: Boolean(isError),
+    errorMsg: String(errorMsg || ''),
+    at: Date.now()
+  });
+  if (adaptiveThrottleState.recentLatencies.length > 8) {
+    adaptiveThrottleState.recentLatencies.shift();
+  }
+
+  // Hitung rata-rata latensi
+  const valid = adaptiveThrottleState.recentLatencies.filter(m => m.latencyMs > 0);
+  if (valid.length > 0) {
+    const sum = valid.reduce((acc, cur) => acc + cur.latencyMs, 0);
+    adaptiveThrottleState.avgLatencyMs = Math.round(sum / valid.length);
+  }
+
+  // Klasifikasi tingkat kelambatan
+  let severity = 'FAST';
+  if (isError) {
+    const errUpper = String(errorMsg || '').toUpperCase();
+    if (
+      errUpper.includes('TIMEOUT') ||
+      errUpper.includes('429') ||
+      errUpper.includes('502') ||
+      errUpper.includes('503') ||
+      errUpper.includes('504') ||
+      errUpper.includes('SMART_RELOAD') ||
+      errUpper.includes('SERVER_DOWN')
+    ) {
+      severity = 'CRITICAL';
+    } else {
+      severity = 'HIGH';
+    }
+  } else if (source === 'TAB_LOAD') {
+    if (lat >= 30000) severity = 'CRITICAL';
+    else if (lat >= 16000) severity = 'HIGH';
+    else if (lat >= 8000) severity = 'SLOW';
+    else severity = 'FAST';
+  } else if (source === 'API_CALL') {
+    if (lat >= 8000) severity = 'CRITICAL';
+    else if (lat >= 4000) severity = 'HIGH';
+    else if (lat >= 1800) severity = 'SLOW';
+    else severity = 'FAST';
+  } else if (source === 'DOM_WAIT') {
+    if (lat >= 15000) severity = 'CRITICAL';
+    else if (lat >= 7000) severity = 'HIGH';
+    else if (lat >= 3000) severity = 'SLOW';
+    else severity = 'FAST';
+  } else {
+    if (lat >= 12000) severity = 'CRITICAL';
+    else if (lat >= 6000) severity = 'HIGH';
+    else if (lat >= 2500) severity = 'SLOW';
+    else severity = 'FAST';
+  }
+
+  const prevLevel = adaptiveThrottleState.level;
+
+  if (severity === 'CRITICAL') {
+    adaptiveThrottleState.consecutiveSlow += 2;
+    adaptiveThrottleState.consecutiveFast = 0;
+    adaptiveThrottleState.level = 'HEAVY';
+  } else if (severity === 'HIGH') {
+    adaptiveThrottleState.consecutiveSlow++;
+    adaptiveThrottleState.consecutiveFast = 0;
+    if (adaptiveThrottleState.level === 'MODERATE' || adaptiveThrottleState.consecutiveSlow >= 3) {
+      adaptiveThrottleState.level = 'HEAVY';
+    } else {
+      adaptiveThrottleState.level = 'MODERATE';
+    }
+  } else if (severity === 'SLOW') {
+    adaptiveThrottleState.consecutiveSlow++;
+    adaptiveThrottleState.consecutiveFast = 0;
+    if (adaptiveThrottleState.consecutiveSlow >= 3) {
+      adaptiveThrottleState.level = 'MODERATE';
+    } else if (adaptiveThrottleState.level === 'NORMAL') {
+      adaptiveThrottleState.level = 'MILD';
+    }
+  } else {
+    // FAST: Pemulihan bertahap (cool-down)
+    adaptiveThrottleState.consecutiveFast++;
+    adaptiveThrottleState.consecutiveSlow = Math.max(0, adaptiveThrottleState.consecutiveSlow - 1);
+
+    if (adaptiveThrottleState.consecutiveFast >= 2) {
+      if (adaptiveThrottleState.level === 'HEAVY') {
+        adaptiveThrottleState.level = 'MODERATE';
+        adaptiveThrottleState.consecutiveFast = 0;
+      } else if (adaptiveThrottleState.level === 'MODERATE') {
+        adaptiveThrottleState.level = 'MILD';
+        adaptiveThrottleState.consecutiveFast = 0;
+      } else if (adaptiveThrottleState.level === 'MILD') {
+        adaptiveThrottleState.level = 'NORMAL';
+        adaptiveThrottleState.consecutiveFast = 0;
+      }
+    }
+  }
+
+  updateThrottleStatus();
+
+  // Siarkan status terbaru ke popup
+  const pubState = getThrottlePublicState();
+  broadcastToPopup({ action: 'THROTTLE_STATE_UPDATED', throttleState: pubState });
+
+  if (prevLevel !== adaptiveThrottleState.level) {
+    console.log(`[FASIH BG] Adaptive Throttle berubah: ${prevLevel} → ${adaptiveThrottleState.level} (${adaptiveThrottleState.statusText})`);
+    if (runnerState.status === 'RUNNING') {
+      broadcastToPopup({
+        action: 'UPDATE_STEP',
+        step: 'ADAPTIVE_THROTTLE',
+        details: adaptiveThrottleState.statusText
+      });
+    }
+  }
+}
+
+function recordServerSlowdownSignal(source, errorMsg = '') {
+  recordServerLatency(source, 35000, { isError: true, errorMsg });
+}
 
 // Klasifikasi kategori error untuk laporan Webhook
 function classifyErrorCategory(errorMsg = '') {
@@ -1494,6 +1714,31 @@ async function sendTabMessageWithRetry(tabId, message) {
 
 // Listener pesan dari Popup dan Content Script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'GET_THROTTLE_STATE') {
+    sendResponse(getThrottlePublicState());
+    return false;
+  }
+
+  if (request.action === 'SET_ADAPTIVE_THROTTLE') {
+    if (runnerState.options) {
+      runnerState.options.enableAdaptiveThrottling = Boolean(request.enabled);
+    }
+    updateThrottleStatus();
+    broadcastToPopup({ action: 'THROTTLE_STATE_UPDATED', throttleState: getThrottlePublicState() });
+    chrome.storage.local.set({ runnerOptions: runnerState.options }).catch(() => {});
+    sendResponse({ ok: true, throttleState: getThrottlePublicState() });
+    return false;
+  }
+
+  if (request.action === 'RECORD_SERVER_LATENCY') {
+    recordServerLatency(request.source || 'DOM_WAIT', request.duration || 0, {
+      isError: Boolean(request.isError),
+      errorMsg: request.errorMsg || ''
+    });
+    sendResponse({ ok: true, throttleState: getThrottlePublicState() });
+    return false;
+  }
+
   if (request.action === 'START_QUEUE') {
     (async () => {
       const queue = await loadStateFromStorage();
