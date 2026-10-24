@@ -384,7 +384,7 @@ async function buildWhatsAppStatusPayload() {
     serverHealth,
     activeTabUrl: state.activeTargetUrl || '',
     timestamp: Date.now(),
-    updatedAt: new Date().toLocaleTimeString('id-ID')
+    updatedAt: new Date().toLocaleTimeString('id-ID', { timeZone: 'Asia/Makassar', hour12: false }) + ' WITA'
   };
 }
 
@@ -498,7 +498,7 @@ async function sendWebhookStatusNotification({
     const skippedCount = queue.filter((i) => i.status === 'SKIPPED').length;
 
     const now = new Date();
-    const waktuLokal = now.toLocaleString('id-ID', { timeZone: 'Asia/Makassar' });
+    const waktuLokal = now.toLocaleString('id-ID', { timeZone: 'Asia/Makassar', hour12: false }) + ' WITA';
 
     let icon = 'ℹ️';
     let title = 'UPDATE STATUS';
@@ -1023,7 +1023,7 @@ async function sendWebhookErrorNotification({
     const kbliAwal = item && item.kbliTask ? item.kbliTask.kbliAwal : '';
     const kbliTujuan = item && item.kbliTask ? item.kbliTask.kbliTujuan : '';
     const now = new Date();
-    const waktuLokal = now.toLocaleString('id-ID', { timeZone: 'Asia/Makassar' });
+    const waktuLokal = now.toLocaleString('id-ID', { timeZone: 'Asia/Makassar', hour12: false }) + ' WITA';
 
     const lines = [
       event === 'TEST_WEBHOOK' ? `🔔 [TUNTAS SE2026 - TES WEBHOOK | ${pcName}]` : `⚠️ [TUNTAS SE2026 - NOTIFIKASI ERROR | ${pcName}]`,
