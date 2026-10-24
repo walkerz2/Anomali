@@ -188,6 +188,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     else if (btnNtbLoadAll) btnNtbLoadAll.classList.add('active');
   }
 
+  // Helper pembersih dataset besar sebelum disimpan ke chrome.storage.local
+  function sanitizeRowsForStorage(rows) {
+    if (!rows || !Array.isArray(rows)) return [];
+    return rows.map(r => {
+      const { originalRow, ...rest } = r;
+      return rest;
+    });
+  }
+
   function applyNtbFilter(filter) {
     if (!ntbValidationResult || !ntbValidationResult.items || !ntbValidationResult.items.length) return;
     ntbFilterMode = filter;
@@ -197,13 +206,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     allRows = converted;
     queue = filterRowsByRange(allRows);
     queueMode = 'NTB';
+    const activeFileName = (fileName && fileName.textContent && fileName.textContent !== '-') ? fileName.textContent : 'File Excel';
     chrome.storage.local.set({
-      fasihAllRows: allRows,
       fasihQueue: queue,
+      excelFileName: activeFileName,
       queueMode,
       ntbValidationResult,
-      ntbFilterMode
+      ntbFilterMode,
+      runnerState: { status: 'IDLE', currentIndex: 0, activeTabId: null, consecutiveFailures: 0, options: getOptions() }
     });
+    try {
+      chrome.storage.local.set({ fasihAllRows: sanitizeRowsForStorage(allRows) });
+    } catch (eStorage) {
+      console.warn('Gagal menyimpan fasihAllRows:', eStorage);
+    }
     setRunnerStatus('IDLE');
     renderQueueTable();
     updateProgressUI();
@@ -432,11 +448,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     queue = filterRowsByRange(allRows);
+    const activeFileName = (fileName && fileName.textContent && fileName.textContent !== '-') ? fileName.textContent : 'File Excel';
     await chrome.storage.local.set({
       fasihQueue: queue,
+      excelFileName: activeFileName,
+      queueMode: queueMode || activeMode,
       runnerState: { status: 'IDLE', currentIndex: 0, activeTabId: null, consecutiveFailures: 0, options: getOptions() }
     });
-    showFileInfo(fileName.textContent || 'File Excel');
+    showFileInfo(activeFileName);
     setRunnerStatus('IDLE');
     renderQueueTable();
     updateProgressUI();
@@ -506,7 +525,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         allRows = converted;
         queue = filterRowsByRange(allRows);
         await chrome.storage.local.set({
-          fasihAllRows: allRows,
           fasihQueue: queue,
           excelFileName: file.name,
           queueMode,
@@ -514,6 +532,11 @@ document.addEventListener('DOMContentLoaded', async () => {
           ntbFilterMode,
           runnerState: { status: 'IDLE', currentIndex: 0, activeTabId: null, consecutiveFailures: 0, options: getOptions() }
         });
+        try {
+          await chrome.storage.local.set({ fasihAllRows: sanitizeRowsForStorage(allRows) });
+        } catch (eStorage) {
+          console.warn('Gagal menyimpan fasihAllRows:', eStorage);
+        }
         showFileInfo(file.name);
         setRunnerStatus('IDLE');
         renderQueueTable();
@@ -536,12 +559,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       queue = filterRowsByRange(allRows);
       queueMode = activeMode;
       await chrome.storage.local.set({
-        fasihAllRows: allRows,
         fasihQueue: queue,
         excelFileName: file.name,
         queueMode,
         runnerState: { status: 'IDLE', currentIndex: 0, activeTabId: null, consecutiveFailures: 0, options: getOptions() }
       });
+      try {
+        await chrome.storage.local.set({ fasihAllRows: sanitizeRowsForStorage(allRows) });
+      } catch (eStorage) {
+        console.warn('Gagal menyimpan fasihAllRows:', eStorage);
+      }
       showFileInfo(file.name);
       setRunnerStatus('IDLE');
       renderQueueTable();
@@ -928,13 +955,31 @@ document.addEventListener('DOMContentLoaded', async () => {
         !confirm(`Mulai ${queueMode === 'DC1' ? '#DC_01 (Ganti KBLI)' : '#DC_00 (Tanpa Perubahan)'} untuk ${nJalan} dokumen?\nDokumen akan DIKIRIM dan DI-APPROVE otomatis.`)) {
       return;
     }
+    // Reset status item DRYRUN menjadi PENDING agar runner mengeksekusinya
+    queue.forEach(q => {
+      if (q.status === 'DRYRUN') q.status = 'PENDING';
+    });
+    renderQueueTable();
+
     saveSettings();
     showRunningButtons();
     setRunnerStatus('RUNNING');
-    chrome.runtime.sendMessage({ action: 'START_QUEUE', options: getOptions() }, (res) => {
+    chrome.runtime.sendMessage({
+      action: 'START_QUEUE',
+      options: getOptions(),
+      queue: queue
+    }, (res) => {
+      if (chrome.runtime.lastError) {
+        console.warn('Error saat mengirim START_QUEUE:', chrome.runtime.lastError.message);
+        return;
+      }
       if (res && res.allCompleted) {
         liveStatusText.textContent = 'Semua antrian sudah diproses.';
         setRunnerStatus('COMPLETED');
+        showIdleButtons();
+      } else if (res && !res.success && res.message) {
+        liveStatusText.textContent = res.message;
+        setRunnerStatus('IDLE');
         showIdleButtons();
       }
     });
@@ -1348,6 +1393,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (o.apiDryRun !== undefined && checkApiDryRun) checkApiDryRun.checked = o.apiDryRun;
       refreshBackupCount();
       showFileInfo(data.excelFileName || 'File Excel');
+    } else if (data.excelFileName && allRows.length) {
+      queue = filterRowsByRange(allRows);
+      queueMode = data.queueMode || activeMode;
+      showFileInfo(data.excelFileName);
     }
     setActiveMode(queueMode || data.activeMode || 'DC0', { silent: true });
     renderQueueTable();
@@ -1358,7 +1407,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       showRunningButtons();
       let activeIdx = (data.runnerState && data.runnerState.currentIndex) || 0;
       let currentItem = queue[activeIdx];
-      if (currentItem && (currentItem.status === 'SKIPPED' || currentItem.status === 'SUCCESS' || currentItem.status === 'FAILED')) {
+      if (currentItem && (currentItem.status === 'SKIPPED' || currentItem.status === 'SUCCESS' || currentItem.status === 'FAILED' || currentItem.status === 'DRYRUN')) {
         const nextActiveIdx = queue.findIndex((it, idx) => idx > activeIdx && (it.status === 'PROCESSING' || it.status === 'OPENING_TAB' || it.status === 'PENDING'));
         if (nextActiveIdx !== -1) {
           activeIdx = nextActiveIdx;
@@ -1494,7 +1543,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ---------- Pesan dari background ----------
   chrome.runtime.onMessage.addListener((request) => {
     if (request.action === 'QUEUE_UPDATED') {
-      queue = request.queue;
+      if (request.queue && Array.isArray(request.queue)) {
+        queue = request.queue;
+      }
       btnExportExcel.disabled = !queue.length;
       renderQueueTable();
       updateProgressUI();
@@ -1504,6 +1555,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           liveStatusText.textContent = `Dilewati: ${item.nama_usaha || `Baris #${request.index + 1}`}`;
         } else if (item.status === 'SUCCESS') {
           liveStatusText.textContent = `Selesai: ${item.nama_usaha || `Baris #${request.index + 1}`}`;
+        } else if (item.status === 'DRYRUN') {
+          liveStatusText.textContent = `Uji OK: ${item.nama_usaha || `Baris #${request.index + 1}`}`;
         }
       }
     }

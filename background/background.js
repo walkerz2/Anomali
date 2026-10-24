@@ -376,7 +376,8 @@ async function handleCloudRemoteCommand(cmd) {
       runnerState.consecutiveFailures = 0;
       runnerState.status = 'RUNNING';
       await chrome.storage.local.set({ runnerState });
-      broadcastToPopup({ action: 'QUEUE_UPDATED' });
+      const qResumed = (await chrome.storage.local.get(['fasihQueue'])).fasihQueue || [];
+      broadcastToPopup({ action: 'QUEUE_UPDATED', queue: qResumed });
       startQueueRunner(runnerState.currentIndex);
     }
   } else if (action === 'STOP' || action === 'BERHENTI') {
@@ -1864,22 +1865,22 @@ async function sendTabMessageWithRetry(tabId, message) {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'START_QUEUE') {
     (async () => {
-      const queue = await loadStateFromStorage();
+      let queue = (request.queue && Array.isArray(request.queue) && request.queue.length > 0)
+        ? request.queue
+        : await loadStateFromStorage();
       if (!queue || queue.length === 0) {
-        sendResponse({ success: false, message: 'Antrian kosong.' });
+        sendResponse({ success: false, message: 'Antrian kosong. Silakan muat file Excel terlebih dahulu.' });
         return;
       }
-      // Pulihkan item yang sempat menggantung (OPENING_TAB / PROCESSING / PAUSED) menjadi PENDING
+      // Pulihkan item yang sempat menggantung (OPENING_TAB / PROCESSING / PAUSED) atau DRYRUN menjadi PENDING
       let hasStuckReset = false;
       for (let i = 0; i < queue.length; i++) {
-        if (queue[i] && (queue[i].status === 'OPENING_TAB' || queue[i].status === 'PROCESSING' || queue[i].status === 'PAUSED')) {
+        if (queue[i] && (queue[i].status === 'OPENING_TAB' || queue[i].status === 'PROCESSING' || queue[i].status === 'PAUSED' || queue[i].status === 'DRYRUN')) {
           queue[i].status = 'PENDING';
           hasStuckReset = true;
         }
       }
-      if (hasStuckReset) {
-        await chrome.storage.local.set({ fasihQueue: queue });
-      }
+      await chrome.storage.local.set({ fasihQueue: queue });
 
       runnerState.consecutiveFailures = 0;
       runnerState.status = 'RUNNING';
@@ -1906,7 +1907,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
 
       await chrome.storage.local.set({ runnerState, runnerOptions: runnerState.options });
-      if (hasStuckReset) broadcastToPopup({ action: 'QUEUE_UPDATED', queue });
+      broadcastToPopup({ action: 'QUEUE_UPDATED', queue });
       processQueueItem(queue, startIndex);
       sendResponse({ success: true, startIndex });
     })();
