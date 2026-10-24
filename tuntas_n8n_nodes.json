@@ -1,0 +1,91 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst content = String($json.data?.content || $('Switch1').item.json.data?.content || '').trim();\n\nconst parts = content.split(/\\s+/);\nconst cmd = (parts[0] || '').toUpperCase();\nlet reply = '';\n\nif (cmd === '#STATUS' || cmd === '#CEK') {\n  const st = staticData.lastStatus;\n  if (!st) {\n    reply = '⚠️ *[STATUS BOT TUNTAS]*\\nBelum ada laporan dari laptop/PC.\\nPastikan ekstensi TUNTAS aktif di browser.';\n  } else {\n    reply = `📊 *[STATUS BOT TUNTAS | ${st.pc || 'PC 1'}]*\\n` +\n      `⚡ Status: *${st.status}*\\n` +\n      `📈 Kemajuan: *${st.progress}*\\n` +\n      `🏢 Usaha: ${st.nama_usaha || '-'}\\n` +\n      `✅ Sukses: ${st.successCount || 0} | ❌ Gagal: ${st.failedCount || 0}\\n` +\n      `📶 Server FASIH: ${st.serverHealth || 'Normal'}\\n` +\n      `⏰ Sinkron Terakhir: ${st.updatedAt || '-'}`;\n  }\n} else if (cmd === '#JEDA' || cmd === '#PAUSE') {\n  staticData.pendingCommand = { action: 'PAUSE', by: 'WhatsApp' };\n  reply = '⏸️ *[PERINTAH JEDA DITERIMA]*\\nPerintah jeda telah dikirim ke bot PC Anda.';\n} else if (cmd === '#LANJUT' || cmd === '#RESUME') {\n  staticData.pendingCommand = { action: 'RESUME', by: 'WhatsApp' };\n  reply = '▶️ *[PERINTAH LANJUT DITERIMA]*\\nPerintah lanjut telah dikirim ke bot PC Anda.';\n} else if (cmd === '#STOP' || cmd === '#BERHENTI') {\n  staticData.pendingCommand = { action: 'STOP', by: 'WhatsApp' };\n  reply = '⏹️ *[PERINTAH STOP DITERIMA]*\\nPerintah stop telah dikirim ke bot PC Anda.';\n} else if (cmd === '#TAMBAH') {\n  const link = parts[1] || '';\n  if (!link.startsWith('http')) {\n    reply = '⚠️ Format link tidak valid.\\nContoh format yang benar:\\n*#TAMBAH https://fasih-sm.bps.go.id/...*';\n  } else {\n    staticData.pendingCommand = { action: 'ADD_QUEUE', link: link.trim() };\n    reply = `➕ *[ANTRIAN DITAMBAHKAN]*\\nTautan baru berhasil dikirim ke antrian bot:\\n${link}`;\n  }\n} else {\n  reply = '🤖 *[PANDUAN PERINTAH BOT TUNTAS]*\\n' +\n    'Gunakan salah satu perintah berikut:\\n\\n' +\n    '• *#STATUS* : Cek progres antrian & server\\n' +\n    '• *#JEDA* : Menjeda bot dari jarak jauh\\n' +\n    '• *#LANJUT* : Melanjutkan bot yang dijeda\\n' +\n    '• *#STOP* : Menghentikan otomasi bot\\n' +\n    '• *#TAMBAH [link]* : Tambah link ke antrian';\n}\n\nreturn { json: { replyMessage: reply } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        1952
+      ],
+      "id": "tuntas-proc-cmd-001",
+      "name": "Proses Perintah TUNTAS"
+    },
+    {
+      "parameters": {
+        "sessionId": "7309",
+        "chatId": "6281383833719",
+        "message": "={{ $json.replyMessage }}"
+      },
+      "type": "n8n-nodes-chatery-whatsapp.chateryWhatsApp",
+      "typeVersion": 1,
+      "position": [
+        1550,
+        1952
+      ],
+      "id": "tuntas-send-reply-002",
+      "name": "Kirim Balasan TUNTAS ke WA",
+      "credentials": {
+        "chateryApi": {
+          "id": "oKdRqwq8E5kEQMw4",
+          "name": "7309"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tuntas-bot-sync",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        976,
+        2200
+      ],
+      "id": "tuntas-sync-webhook-003",
+      "name": "Webhook Ekstensi Sync"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst body = $json.body || {};\n\nif (body.pc || body.status) {\n  staticData.lastStatus = {\n    pc: body.pc || 'PC 1',\n    status: body.status || 'IDLE',\n    progress: body.progress || '0 / 0',\n    nama_usaha: body.nama_usaha || '-',\n    successCount: body.successCount || 0,\n    failedCount: body.failedCount || 0,\n    serverHealth: body.serverHealth || 'Normal (1.0x)',\n    updatedAt: new Date().toLocaleTimeString('id-ID')\n  };\n}\n\nlet commandToSend = { action: 'NONE' };\nif (staticData.pendingCommand) {\n  commandToSend = staticData.pendingCommand;\n  staticData.pendingCommand = null;\n}\n\nreturn { json: { status: 'OK', command: commandToSend } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        2200
+      ],
+      "id": "tuntas-sync-state-004",
+      "name": "Simpan Status & Kirim Perintah"
+    }
+  ],
+  "connections": {
+    "Proses Perintah TUNTAS": {
+      "main": [
+        [
+          {
+            "node": "Kirim Balasan TUNTAS ke WA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Ekstensi Sync": {
+      "main": [
+        [
+          {
+            "node": "Simpan Status & Kirim Perintah",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

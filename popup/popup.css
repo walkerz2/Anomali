@@ -1054,3 +1054,18 @@ body {
   color: #98a2b3;
   font-style: italic;
 }
+
+.cloud-sync-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: -4px 0 8px 24px;
+  transition: color 0.2s ease;
+}
+.cloud-sync-status.active {
+  color: #2e7d27;
+  font-weight: 500;
+}
+.cloud-sync-status.disabled {
+  color: #98a2b3;
+  font-style: italic;
+}

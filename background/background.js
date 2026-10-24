@@ -76,6 +76,7 @@ function formatEditUrl(urlStr, periodeId = '') {
 }
 
 const DEFAULT_WEBHOOK_URL = 'https://n8n7309.online/webhook/notif-anomali';
+const DEFAULT_SYNC_WEBHOOK_URL = 'https://n8n7309.online/webhook/tuntas-bot-sync';
 
 let runnerState = {
   status: 'IDLE', // 'IDLE', 'RUNNING', 'PAUSED', 'STOPPED'
@@ -109,6 +110,8 @@ let runnerState = {
     pcName: 'PC 1',
     enableWebhook: true,
     webhookUrl: DEFAULT_WEBHOOK_URL,
+    enableCloudSync: true,
+    syncWebhookUrl: DEFAULT_SYNC_WEBHOOK_URL,
     apiDryRun: true
   }
 };
@@ -251,6 +254,145 @@ function getAdaptiveInterItemDelay(isFastSkip = false) {
   const health = runnerState.serverHealth || evaluateServerHealth();
   const mult = health.multiplier || 1.0;
   return getRandomInt(Math.round(baseMin * mult), Math.round(baseMax * mult));
+}
+
+// ===== Two-Way WhatsApp Remote Control & Cloud Sync =====
+const CLOUD_SYNC_ALARM = 'TUNTAS_CLOUD_SYNC_ALARM';
+let isSyncingWithCloud = false;
+let cloudSyncTimer = null;
+
+function startCloudSync() {
+  if (cloudSyncTimer) return;
+  cloudSyncTimer = setInterval(async () => {
+    try {
+      await syncWithCloudWebhook();
+    } catch (e) {}
+  }, 7000);
+}
+
+function stopCloudSync() {
+  if (cloudSyncTimer) {
+    clearInterval(cloudSyncTimer);
+    cloudSyncTimer = null;
+  }
+}
+
+async function syncWithCloudWebhook() {
+  if (isSyncingWithCloud) return;
+  const opts = (runnerState && runnerState.options) || {};
+  if (opts.enableCloudSync === false) return;
+
+  const syncUrl = String(opts.syncWebhookUrl || DEFAULT_SYNC_WEBHOOK_URL).trim();
+  if (!syncUrl || !/^https?:\/\//i.test(syncUrl)) return;
+
+  isSyncingWithCloud = true;
+  try {
+    const data = await chrome.storage.local.get(['fasihQueue', 'runnerState']);
+    const queue = data.fasihQueue || [];
+    const st = data.runnerState || runnerState;
+
+    let completedCount = 0;
+    let successCount = 0;
+    let failedCount = 0;
+    for (const it of queue) {
+      if (it.status === 'SUCCESS') { successCount++; completedCount++; }
+      else if (it.status === 'FAILED') { failedCount++; completedCount++; }
+      else if (it.status === 'SKIPPED') { completedCount++; }
+    }
+
+    const curIdx = st.currentIndex || 0;
+    const curItem = queue[curIdx];
+    const currentUsaha = (curItem && (curItem.nama_usaha || curItem.namaUsahaExcel)) || '-';
+
+    const payload = {
+      action: 'HEARTBEAT',
+      pc: opts.pcName || 'PC 1',
+      status: st.status || 'IDLE',
+      progress: queue.length ? `${completedCount} / ${queue.length}` : '0 / 0',
+      nama_usaha: currentUsaha,
+      successCount,
+      failedCount,
+      serverHealth: (st.serverHealth && st.serverHealth.label) || 'Normal (1.0x)',
+      currentIndex: curIdx,
+      totalCount: queue.length,
+      timestamp: new Date().toISOString()
+    };
+
+    const resp = await fetch(syncUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!resp.ok) return;
+    const resJson = await resp.json().catch(() => null);
+    if (!resJson || !resJson.command) return;
+
+    const cmd = resJson.command;
+    await handleCloudRemoteCommand(cmd);
+  } catch (err) {
+    // Abaikan error koneksi sementara
+  } finally {
+    isSyncingWithCloud = false;
+  }
+}
+
+async function handleCloudRemoteCommand(cmd) {
+  if (!cmd || !cmd.action || cmd.action === 'NONE') return;
+  console.log('[TUNTAS Cloud Remote] Menerima perintah remote:', cmd);
+
+  const action = String(cmd.action).toUpperCase();
+
+  if (action === 'PAUSE' || action === 'JEDA') {
+    if (runnerState.status === 'RUNNING') {
+      console.log('[TUNTAS Cloud Remote] Menjeda runner dari WhatsApp...');
+      runnerState.status = 'PAUSED';
+      await chrome.storage.local.set({ runnerState });
+      if (runnerState.activeTabId) {
+        chrome.tabs.sendMessage(runnerState.activeTabId, { action: 'PAUSE_WORKFLOW' }).catch(() => {});
+      }
+      updateItemStatus(runnerState.currentIndex, 'PAUSED', 'Dijeda dari WhatsApp');
+      broadcastToPopup({ action: 'QUEUE_PAUSED' });
+    }
+  } else if (action === 'RESUME' || action === 'LANJUT') {
+    if (runnerState.status === 'PAUSED') {
+      console.log('[TUNTAS Cloud Remote] Melanjutkan runner dari WhatsApp...');
+      runnerState.consecutiveFailures = 0;
+      runnerState.status = 'RUNNING';
+      await chrome.storage.local.set({ runnerState });
+      broadcastToPopup({ action: 'QUEUE_UPDATED' });
+      startQueueRunner(runnerState.currentIndex);
+    }
+  } else if (action === 'STOP' || action === 'BERHENTI') {
+    console.log('[TUNTAS Cloud Remote] Menghentikan runner dari WhatsApp...');
+    runnerState.status = 'STOPPED';
+    runnerState.activeTabId = null;
+    stopKeepAlive();
+    await chrome.storage.local.set({ runnerState });
+    broadcastToPopup({ action: 'QUEUE_STOPPED' });
+  } else if (action === 'ADD_QUEUE') {
+    const rawLink = String(cmd.link || '').trim();
+    if (rawLink && rawLink.startsWith('http')) {
+      console.log('[TUNTAS Cloud Remote] Menambahkan tautan ke antrian:', rawLink);
+      const data = await chrome.storage.local.get(['fasihQueue']);
+      const q = data.fasihQueue || [];
+      const newItem = {
+        link_fasih_sm: rawLink,
+        status: 'PENDING',
+        nama_usaha: `WA Tambahan #${q.length + 1}`,
+        excelRowNum: q.length + 1,
+        source: 'WhatsApp'
+      };
+      q.push(newItem);
+      await chrome.storage.local.set({ fasihQueue: q });
+      broadcastToPopup({ action: 'QUEUE_UPDATED', queue: q });
+      broadcastToPopup({
+        action: 'UPDATE_STEP',
+        step: 'WA_ADD',
+        details: `Dokumen baru berhasil ditambahkan dari WhatsApp (#${q.length})`
+      });
+    }
+  }
 }
 
 // Klasifikasi kategori error untuk laporan Webhook
@@ -2245,6 +2387,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ ok: true, health: runnerState.serverHealth });
     return true;
   }
+  if (request.action === 'CLOUD_SYNC_CONFIG') {
+    if (request.options) {
+      runnerState.options = { ...runnerState.options, ...request.options };
+    }
+    syncWithCloudWebhook().catch(() => {});
+    sendResponse({ ok: true });
+    return true;
+  }
 
   if (request.action === 'REVOKE_TRIGGERED') {
       runnerState.tabRevokedRecently = true;
@@ -2320,16 +2470,31 @@ async function keepAliveTick() {
   chrome.action.setBadgeText({ text: res.expired ? '!' : '' }).catch(() => {});
 }
 
+function setupCloudSyncAlarm() {
+  chrome.alarms.get(CLOUD_SYNC_ALARM, (al) => {
+    if (!al) {
+      chrome.alarms.create(CLOUD_SYNC_ALARM, { periodInMinutes: 0.2 });
+    }
+  });
+}
+
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === KEEPALIVE_ALARM) keepAliveTick().catch(() => {});
+  if (a.name === CLOUD_SYNC_ALARM) syncWithCloudWebhook().catch(() => {});
 });
 chrome.runtime.onInstalled.addListener(() => {
   setupKeepAlive().catch(() => {});
   loadStateFromStorage().catch(() => {});
+  setupCloudSyncAlarm();
+  startCloudSync();
 });
 chrome.runtime.onStartup.addListener(() => {
   setupKeepAlive().catch(() => {});
   loadStateFromStorage().catch(() => {});
+  setupCloudSyncAlarm();
+  startCloudSync();
 });
 loadStateFromStorage().catch(() => {});
 setupKeepAlive().catch(() => {});
+setupCloudSyncAlarm();
+startCloudSync();

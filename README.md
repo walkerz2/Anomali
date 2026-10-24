@@ -179,6 +179,13 @@ Untuk setiap baris pada file Excel:
     - **Auto Revoke jika Dokumen Sudah di-Approve**: Jika assignment sudah berstatus Approved sehingga tombol Kirim tidak tersedia, bot otomatis mengklik tombol Revoke (ikon panah putar balik di toolbar pojok kanan bawah), mengonfirmasi dialog Revoke, menunggu reload formulir selesai, mengisi catatan (misal 27.a atau 13.g), submit formulir, dan melakukan Approve kembali.
     - **Auto Approve**: Centang untuk otomatis membuka halaman review dan mengklik tombol Approve setelah survei berhasil disubmit.
     - **Notifikasi Webhook (n8n / Telegram)**: Mengirim notifikasi otomatis secara selektif ke endpoint Webhook. Notifikasi **hanya** dikirim jika ekstensi macet/tidak jalan (server FASIH down, 500/502/503/504, timeout >35s/70s, SSO gagal, koneksi terputus, formulir tidak terbuka) atau kandas dalam proses pemberian remark (pertanyaan target tidak ditemukan, modal catatan gagal dibuka, unit usaha/KBLI tidak ditemukan, gagal revoke, atau galat formulir). Event wajar seperti remark sudah ada sebelumnya, link URL Excel tidak valid, atau kendala tombol Approve setelah dokumen sukses terkirim tidak akan memicu notifikasi.
+     - **WhatsApp Remote Control & Cloud Sync (Dua Arah via n8n)**: Fitur sinkronisasi dua arah yang memungkinkan Anda memantau dan mengendalikan bot secara live dari HP melalui WhatsApp tanpa perlu membuka laptop:
+       - **#STATUS** / **#CEK**: Meminta laporan terkini (progres berjalan, total sukses/gagal, nama usaha aktif, status latensi server).
+       - **#JEDA** / **#PAUSE**: Menjeda proses otomasi di laptop dari jarak jauh.
+       - **#LANJUT** / **#RESUME**: Melanjutkan kembali antrian yang dijeda.
+       - **#STOP**: Menghentikan proses otomasi bot.
+       - **#TAMBAH [link_fasih]**: Menambahkan tautan dokumen baru ke dalam antrian bot tanpa perlu mengunggah ulang file Excel.
+       - *Anti-Bentrok*: Menggunakan awalan tanda pagar (#) sehingga bisa berjalan di nomor WhatsApp yang sama dengan CS Kantor (SI BOLU) secara terisolasi dan aman.
     - **Circuit Breaker**: Pengaman otomatis yang akan menjeda antrian jika terjadi 3 kegagalan beruntun akibat server FASIH down atau timeout jaringan.
 5. **Mulai Eksekusi**:
    - Klik tombol **Mulai Otomasi**.

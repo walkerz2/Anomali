@@ -49,6 +49,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const checkAutoApprove = $('checkAutoApprove');
   const checkCloseTab = $('checkCloseTab');
   const DEFAULT_WEBHOOK_URL = 'https://n8n7309.online/webhook/notif-anomali';
+  const DEFAULT_SYNC_WEBHOOK_URL = 'https://n8n7309.online/webhook/tuntas-bot-sync';
+  const syncWebhookUrlInput = $('syncWebhookUrlInput');
+  const checkEnableCloudSync = $('checkEnableCloudSync');
+  const cloudSyncStatus = $('cloudSyncStatus');
 
   const btnStart = $('btnStart');
   const btnPause = $('btnPause');
@@ -590,6 +594,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       autoApprove: checkAutoApprove.checked,
       closeTabOnComplete: checkCloseTab.checked,
       adaptiveThrottling: checkAdaptiveThrottling ? checkAdaptiveThrottling.checked : true,
+      enableCloudSync: checkEnableCloudSync ? checkEnableCloudSync.checked : true,
+      syncWebhookUrl: (syncWebhookUrlInput && syncWebhookUrlInput.value.trim()) || DEFAULT_SYNC_WEBHOOK_URL,
       apiDryRun: checkApiDryRun ? checkApiDryRun.checked : true
     };
   }
@@ -598,8 +604,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.storage.local.set({ runnerOptions: getOptions(), activeMode }).catch(() => {});
   }
   [commentInput, dc0TargetSelect, dc1TargetSelect, catatanDigantiInput, delayInput, periodeInput,
-    ssoEmailInput, ssoPasswordInput, pcNameInput, webhookUrlInput, checkEnableWebhook, checkAutoSsoLogin,
-    checkKeepAlive, checkAdaptiveThrottling,
+    ssoEmailInput, ssoPasswordInput, pcNameInput, webhookUrlInput, syncWebhookUrlInput, checkEnableWebhook, checkAutoSsoLogin,
+    checkKeepAlive, checkAdaptiveThrottling, checkEnableCloudSync,
     checkAutoRevoke,
     checkRequireConfirm, checkAutoApprove, checkCloseTab, checkApiDryRun]
     .filter(Boolean)
@@ -1294,6 +1300,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (o.ssoPassword && ssoPasswordInput) ssoPasswordInput.value = o.ssoPassword;
     if (o.pcName && pcNameInput) pcNameInput.value = o.pcName;
     if (webhookUrlInput) webhookUrlInput.value = o.webhookUrl || DEFAULT_WEBHOOK_URL;
+    if (syncWebhookUrlInput) syncWebhookUrlInput.value = o.syncWebhookUrl || DEFAULT_SYNC_WEBHOOK_URL;
+    if (o.enableCloudSync !== undefined && checkEnableCloudSync) {
+      checkEnableCloudSync.checked = o.enableCloudSync;
+      if (!o.enableCloudSync && cloudSyncStatus) {
+        cloudSyncStatus.className = 'cloud-sync-status disabled';
+        cloudSyncStatus.textContent = 'WhatsApp Remote dinonaktifkan';
+      }
+    }
     if (o.enableWebhook !== undefined && checkEnableWebhook) checkEnableWebhook.checked = o.enableWebhook;
     if (o.autoSsoLogin !== undefined && checkAutoSsoLogin) checkAutoSsoLogin.checked = o.autoSsoLogin;
     if (o.autoRevoke !== undefined && checkAutoRevoke) checkAutoRevoke.checked = o.autoRevoke;
@@ -1458,6 +1472,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         action: 'THROTTLE_CONFIG',
         options: getOptions()
       }).catch(() => {});
+    });
+  }
+
+  if (checkEnableCloudSync) {
+    checkEnableCloudSync.addEventListener('change', () => {
+      saveSettings();
+      if (cloudSyncStatus) {
+        if (checkEnableCloudSync.checked) {
+          cloudSyncStatus.className = 'cloud-sync-status active';
+          cloudSyncStatus.textContent = 'WhatsApp Remote: Siap (#STATUS / #JEDA / #LANJUT)';
+        } else {
+          cloudSyncStatus.className = 'cloud-sync-status disabled';
+          cloudSyncStatus.textContent = 'WhatsApp Remote dinonaktifkan';
+        }
+      }
+      chrome.runtime.sendMessage({ action: 'CLOUD_SYNC_CONFIG', options: getOptions() }).catch(() => {});
     });
   }
 

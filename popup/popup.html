@@ -256,6 +256,10 @@
               <button id="btnTestWebhook" class="btn-ghost btn-test-webhook" type="button" title="Kirim pesan tes ke URL Webhook">Tes</button>
             </div>
           </div>
+          <div class="form-group">
+            <label for="syncWebhookUrlInput" title="URL Webhook n8n untuk sinkronisasi status & kontrol dua arah lewat WhatsApp">URL Webhook Sync WhatsApp:</label>
+            <input type="url" id="syncWebhookUrlInput" value="https://n8n7309.online/webhook/tuntas-bot-sync" placeholder="https://n8n7309.online/webhook/tuntas-bot-sync" spellcheck="false">
+          </div>
         </div>
 
         <div class="checkbox-group">
@@ -277,6 +281,11 @@
             <span><b>Adaptive Throttling</b> — perlambat otomatis saat server FASIH lemot/down</span>
           </label>
           <div id="throttleStatus" class="throttle-status">Latensi server: Belum terukur (Normal 1.0x)</div>
+          <label class="checkbox-label">
+            <input type="checkbox" id="checkEnableCloudSync" checked>
+            <span><b>WhatsApp Remote & Cloud Sync</b> — kendalikan bot lewat WA (#STATUS, #JEDA, #LANJUT, #STOP)</span>
+          </label>
+          <div id="cloudSyncStatus" class="cloud-sync-status">WhatsApp Remote: Siap (#STATUS / #JEDA / #LANJUT)</div>
           <label class="checkbox-label">
             <input type="checkbox" id="checkAutoRevoke" checked>
             <span>Auto Revoke jika assignment sudah di-Approve (agar bisa diberi catatan & dikirim ulang)</span>
