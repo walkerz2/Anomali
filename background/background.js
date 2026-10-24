@@ -461,6 +461,95 @@ async function syncWithWhatsAppRemote({ force = false, test = false } = {}) {
   }
 }
 
+
+// Eksekusi jeda antrian secara menyeluruh (digunakan oleh Pop-up UI & Remote WhatsApp)
+async function pauseQueueExecution() {
+  runnerState.status = 'PAUSED';
+  await chrome.storage.local.set({ runnerState });
+  if (runnerState.activeTabId) {
+    chrome.tabs.sendMessage(runnerState.activeTabId, { action: 'PAUSE_WORKFLOW' }).catch(() => {});
+  }
+  chrome.tabs.query({ url: ['*://fasih-sm.bps.go.id/*', '*://*.bps.go.id/*'] }, (tabs) => {
+    if (tabs && tabs.length > 0) {
+      for (const t of tabs) {
+        chrome.tabs.sendMessage(t.id, { action: 'PAUSE_WORKFLOW' }).catch(() => {});
+      }
+    }
+  });
+  if (runnerState.currentIndex !== null && runnerState.currentIndex !== undefined) {
+    await updateItemStatus(runnerState.currentIndex, 'PAUSED', 'Dijeda');
+  }
+  broadcastToPopup({ action: 'QUEUE_PAUSED' });
+  return { success: true };
+}
+
+// Eksekusi pemulihan antrian secara menyeluruh (digunakan oleh Pop-up UI & Remote WhatsApp)
+async function resumeQueueExecution(options = null) {
+  const queue = await loadStateFromStorage();
+  runnerState.consecutiveFailures = 0;
+  runnerState.status = 'RUNNING';
+  if (options) {
+    runnerState.options = { ...runnerState.options, ...options };
+  }
+  await chrome.storage.local.set({ runnerState, runnerOptions: runnerState.options });
+  broadcastToPopup({ action: 'QUEUE_RESUMED' });
+
+  // 1. Jika loop antrian masih aktif dan tab saat ini masih dalam proses/dijeda, lanjutkan tab tersebut
+  const curItem = queue[runnerState.currentIndex];
+  const isCurrentTabStillInProgress = curItem && (curItem.status === 'PAUSED' || curItem.status === 'PROCESSING' || curItem.status === 'OPENING_TAB');
+  if (isQueueRunning && runnerState.activeTabId && isCurrentTabStillInProgress) {
+    try {
+      const tab = await chrome.tabs.get(runnerState.activeTabId);
+      if (tab && !tab.discarded) {
+        // Kembalikan item PAUSED lainnya ke PENDING, dan item aktif ke PROCESSING
+        for (let i = 0; i < queue.length; i++) {
+          if (queue[i] && queue[i].status === 'PAUSED') {
+            queue[i].status = (i === runnerState.currentIndex) ? 'PROCESSING' : 'PENDING';
+          }
+        }
+        await chrome.storage.local.set({ fasihQueue: queue });
+        broadcastToPopup({ action: 'QUEUE_UPDATED', index: runnerState.currentIndex, queue });
+        chrome.tabs.sendMessage(runnerState.activeTabId, { action: 'RESUME_WORKFLOW' }).catch(() => {});
+        return { success: true, resumedTab: runnerState.activeTabId };
+      }
+    } catch (e) {}
+  }
+
+  // 2. Kembalikan semua item yang menggantung (PAUSED/PROCESSING/OPENING_TAB) ke PENDING
+  let hasReset = false;
+  for (let i = 0; i < queue.length; i++) {
+    if (queue[i] && (queue[i].status === 'PAUSED' || queue[i].status === 'PROCESSING' || queue[i].status === 'OPENING_TAB')) {
+      queue[i].status = 'PENDING';
+      hasReset = true;
+    }
+  }
+  if (hasReset) {
+    await chrome.storage.local.set({ fasihQueue: queue });
+    broadcastToPopup({ action: 'QUEUE_UPDATED', queue });
+  }
+
+  // 3. Lanjutkan antrian ke item PENDING mulai dari currentIndex
+  let nextIndex = findNextPendingIndex(queue, runnerState.currentIndex);
+  if (nextIndex === -1) {
+    nextIndex = findNextPendingIndex(queue, 0);
+  }
+
+  if (nextIndex === -1) {
+    if (runnerState.activeTabId && runnerState.options.closeTabOnComplete !== false) {
+      await safeCloseTab(runnerState.activeTabId);
+    }
+    stopKeepAlive();
+    runnerState.status = 'IDLE';
+    runnerState.activeTabId = null;
+    await chrome.storage.local.set({ runnerState });
+    broadcastToPopup({ action: 'ALL_COMPLETED' });
+    return { success: false, allCompleted: true, message: 'Semua item dalam antrian sudah selesai diproses.' };
+  }
+
+  startQueueRunner(nextIndex, { forceRestart: true });
+  return { success: true, nextIndex };
+}
+
 async function handleRemoteWhatsAppCommand(cmd) {
   if (!cmd || !cmd.action || cmd.action === 'NONE') return;
 
