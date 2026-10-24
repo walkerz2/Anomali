@@ -273,6 +273,11 @@
           </label>
           <div id="keepAliveStatus" class="keepalive-status">Status sesi: belum diperiksa</div>
           <label class="checkbox-label">
+            <input type="checkbox" id="checkAdaptiveThrottling" checked>
+            <span><b>Adaptive Throttling</b> — perlambat otomatis saat server FASIH lemot/down</span>
+          </label>
+          <div id="throttleStatus" class="throttle-status">Latensi server: Belum terukur (Normal 1.0x)</div>
+          <label class="checkbox-label">
             <input type="checkbox" id="checkAutoRevoke" checked>
             <span>Auto Revoke jika assignment sudah di-Approve (agar bisa diberi catatan & dikirim ulang)</span>
           </label>
@@ -348,7 +353,10 @@
       <section class="card progress-card">
         <div class="progress-header">
           <span class="progress-title">Kemajuan Proses:</span>
-          <span id="progressStats" class="progress-stats">0 / 0</span>
+          <div class="progress-header-right">
+            <span id="serverHealthBadge" class="server-health-pill pill-optimal" title="Kondisi respon server FASIH">Server: Normal (1.0x)</span>
+            <span id="progressStats" class="progress-stats">0 / 0</span>
+          </div>
         </div>
         <div class="progress-bar-container">
           <div id="progressBar" class="progress-bar" style="width: 0%;"></div>

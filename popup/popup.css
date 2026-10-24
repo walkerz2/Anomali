@@ -950,17 +950,107 @@ body {
   text-decoration: underline;
   padding: 0;
 }
-
-.keepalive-status {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin: -4px 0 8px 24px;
-}
-.keepalive-status.ok {
-  color: #2e7d27;
-  font-weight: 500;
-}
-.keepalive-status.err {
-  color: #b42318;
-  font-weight: 600;
-}
+
+
+.keepalive-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: -4px 0 8px 24px;
+}
+.keepalive-status.ok {
+  color: #2e7d27;
+  font-weight: 500;
+}
+.keepalive-status.err {
+  color: #b42318;
+  font-weight: 600;
+}
+
+
+/* Adaptive Throttling & Server Health Badge */
+.progress-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.server-health-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.server-health-pill.pill-optimal {
+  background-color: #ecfdf3;
+  color: #027a48;
+  border: 1px solid #a6f4c5;
+}
+
+.server-health-pill.pill-moderate {
+  background-color: #fffaeb;
+  color: #b54708;
+  border: 1px solid #fedf89;
+}
+
+.server-health-pill.pill-congested {
+  background-color: #fef3f2;
+  color: #b42318;
+  border: 1px solid #fecdca;
+}
+
+.server-health-pill.pill-cooldown {
+  background-color: #fbe8ff;
+  color: #7a1b8c;
+  border: 1px solid #f0b8fc;
+  animation: pulse-cooldown 1.5s infinite;
+}
+
+.server-health-pill.pill-off {
+  background-color: #f2f4f7;
+  color: #667085;
+  border: 1px solid #eaecf0;
+}
+
+@keyframes pulse-cooldown {
+  0% { opacity: 1; }
+  50% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
+.throttle-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: -4px 0 8px 24px;
+  transition: color 0.2s ease;
+}
+
+.throttle-status.status-optimal {
+  color: #2e7d27;
+  font-weight: 500;
+}
+
+.throttle-status.status-moderate {
+  color: #b54708;
+  font-weight: 500;
+}
+
+.throttle-status.status-congested {
+  color: #b42318;
+  font-weight: 600;
+}
+
+.throttle-status.status-cooldown {
+  color: #7a1b8c;
+  font-weight: 600;
+}
+
+.throttle-status.disabled {
+  color: #98a2b3;
+  font-style: italic;
+}

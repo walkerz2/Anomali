@@ -150,6 +150,7 @@ Untuk setiap baris pada file Excel:
 
 1. **Akun FASIH, Auto Login SSO Eksternal & Penjaga Sesi**:
    - **Jaga Sesi FASIH Tetap Aktif**: Memastikan sesi Anda di FASIH-SM tidak kedaluwarsa saat browser didiamkan. Cukup biarkan minimal satu tab `fasih-sm.bps.go.id` terbuka di latar belakang. Ekstensi akan mengirimkan *heartbeat* ringan ke server tiap 4 menit dan mengunci tab agar tidak dibekukan (*autoDiscardable: false*).
+   - **Adaptive Throttling**: Otomatis memantau latensi dan respons server FASIH serta menyesuaikan kecepatan eksekusi bot secara mandiri saat server melambat atau padat.
    - Ekstensi dilengkapi fitur **Auto Login SSO Eksternal**: jika sesi berakhir atau tab dialihkan ke halaman login SSO BPS, bot akan otomatis mengklik **"Lanjutkan SSO Eksternal"**, memasukkan email `Haerulhaeruddin003@gmail.com` dan kata sandi `Mitra123`, lalu mengirim formulir login dan kembali melanjutkan antrian.
    - Anda juga dapat menyesuaikan email/kata sandi SSO kapan saja melalui menu Pengaturan pada popup.
 2. **Buka Ekstensi**:
@@ -161,6 +162,12 @@ Untuk setiap baris pada file Excel:
    - **Email & Password SSO**: Default `xxxxxx@gmail.com` & `XXXXXX` (bisa diubah di popup).
    - **Auto Login SSO Eksternal**: Centang untuk otomatis login saat sesi kedaluwarsa.
     - **Jaga Sesi FASIH Tetap Aktif (Keep-Alive)**: Centang (default aktif) agar ekstensi secara otomatis menyapa server FASIH-SM setiap 4 menit lewat tab FASIH yang terbuka. Menjaga sesi login tidak habis karena lama diam dan mencegah tab ditidurkan (*discarded*) oleh Memory Saver Chrome. Status sesi (aktif/habis beserta jam terakhir diperpanjang) terpantau langsung di popup, dan ikon ekstensi menampilkan tanda seru merah (**!**) bila sesi habis.
+    - **Adaptive Throttling (Penyesuaian Kecepatan Otomatis)**: Centang (default aktif) agar bot secara cerdas mengukur waktu respon server FASIH (latensi pemuatan tab & eksekusi API) secara *real-time*:
+      - **Optimal (< 2.5 detik)**: Kecepatan normal (pengali 1.0x).
+      - **Sedang (2.5 s.d. 5 detik)**: Bot melambat secara otomatis ke pengali 1.5x untuk memberi ruang server bernapas.
+      - **Padat (> 5 detik)**: Bot memperlambat jeda langkah ke 2.2x agar tidak memicu bottleneck dan mencegah request timeout.
+      - **Cooldown Otomatis (15 detik)**: Jika terdeteksi gangguan server (HTTP 502/503/504, Bad Gateway, Service Unavailable, atau timeout koneksi), bot secara otomatis mengaktifkan jeda pendinginan selama 15 detik sebelum memproses dokumen berikutnya.
+      - **Live Health Badge**: Kondisi server terpantau langsung secara dinamis melalui status latensi dan badge kesehatan server (*Normal*, *Sedang*, *Padat*, *Cooldown*) di bagian kemajuan proses popup.
    - **Catatan Utama**: Default `#DC_00` (satu catatan saja, tanpa catatan tambahan).
    - **Jeda per Langkah**: Default `1.5` detik (dapat diperbesar menjadi 2.0 atau 2.5 jika koneksi server FASIH sedang lambat).
    - **Tampilkan konfirmasi sebelum kirim (untuk cek kesesuaian)**: Centang jika Anda ingin memeriksa isian terlebih dahulu sebelum survei dikirim. Ekstensi akan menampilkan modal konfirmasi interaktif di halaman dengan opsi:

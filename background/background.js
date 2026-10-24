@@ -82,6 +82,13 @@ let runnerState = {
   currentIndex: 0,
   activeTabId: null,
   consecutiveFailures: 0, // Pelacak kegagalan beruntun untuk Circuit Breaker
+  serverHealth: {
+    level: 'OPTIMAL',
+    multiplier: 1.0,
+    avgLatency: 0,
+    label: 'Normal (1.0x)',
+    statusText: 'Latensi server: Belum terukur (Normal 1.0x)'
+  },
   options: {
     mode: 'DC0',
     commentText: '#DC_00',
@@ -91,6 +98,7 @@ let runnerState = {
     catatanKbliDiganti: '#DC_01',
     periodeId: 'fd68e454-ba45-4b85-8205-f3bf777ded24',
     stepDelay: 1500,
+    adaptiveThrottling: true,
     requireManualConfirm: false,
     autoSubmitSurvey: true,
     closeTabOnComplete: true,
@@ -104,6 +112,146 @@ let runnerState = {
     apiDryRun: true
   }
 };
+
+// ===== Adaptive Throttling: Pengukuran latensi & penyesuaian kecepatan otomatis =====
+let serverLatencySamples = []; // { durationMs, isSuccess, timestamp }
+let serverCooldownUntil = 0;   // Cooldown expiry timestamp (ms)
+const MAX_LATENCY_SAMPLES = 8;
+
+function recordServerLatency(durationMs, isSuccess = true, errorReason = '') {
+  const now = Date.now();
+  serverLatencySamples.push({ durationMs: Math.max(0, Math.round(durationMs)), isSuccess, timestamp: now });
+  if (serverLatencySamples.length > MAX_LATENCY_SAMPLES) {
+    serverLatencySamples.shift();
+  }
+
+  const errStr = String(errorReason || '').toUpperCase();
+  if (
+    !isSuccess &&
+    (errStr.includes('502') ||
+     errStr.includes('503') ||
+     errStr.includes('504') ||
+     errStr.includes('BAD GATEWAY') ||
+     errStr.includes('SERVICE UNAVAILABLE') ||
+     errStr.includes('TIMEOUT') ||
+     errStr.includes('SERVER_DOWN') ||
+     errStr.includes('ERR_CONNECTION'))
+  ) {
+    triggerServerCooldown(`Gangguan server (${errorReason || 'timeout/koneksi'})`);
+    return;
+  }
+
+  evaluateServerHealth();
+}
+
+function triggerServerCooldown(reason = '') {
+  serverCooldownUntil = Date.now() + 15000; // 15 detik cooldown
+  console.warn(`[TUNTAS Adaptive] Cooldown server 15 detik diaktifkan: ${reason}`);
+  evaluateServerHealth();
+}
+
+function evaluateServerHealth() {
+  const isEnabled = runnerState.options && runnerState.options.adaptiveThrottling !== false;
+  const now = Date.now();
+
+  let level = 'OPTIMAL';
+  let multiplier = 1.0;
+  let avgLatency = 0;
+  let label = 'Normal (1.0x)';
+  let statusText = 'Latensi server: Normal (1.0x)';
+
+  if (!isEnabled) {
+    runnerState.serverHealth = {
+      level: 'OFF',
+      multiplier: 1.0,
+      avgLatency: 0,
+      label: 'Off',
+      statusText: 'Adaptive Throttling nonaktif (kecepatan tetap)'
+    };
+    broadcastToPopup({ action: 'SERVER_HEALTH_UPDATE', health: runnerState.serverHealth });
+    return runnerState.serverHealth;
+  }
+
+  if (now < serverCooldownUntil) {
+    const sisaDetik = Math.max(1, Math.round((serverCooldownUntil - now) / 1000));
+    level = 'COOLDOWN';
+    multiplier = 2.5;
+    label = `Cooldown (${sisaDetik}s)`;
+    statusText = `Server lemot/gangguan. Cooldown 15s aktif (${sisaDetik}s tersisa, 2.5x jeda)`;
+  } else if (serverLatencySamples.length > 0) {
+    const sum = serverLatencySamples.reduce((acc, s) => acc + s.durationMs, 0);
+    avgLatency = Math.round(sum / serverLatencySamples.length);
+    const secStr = (avgLatency / 1000).toFixed(1);
+
+    if (avgLatency >= 5000) {
+      level = 'CONGESTED';
+      multiplier = 2.2;
+      label = `Padat (${secStr}s, 2.2x)`;
+      statusText = `Latensi server: Padat ~${secStr} detik (Kecepatan diturunkan ke 2.2x)`;
+    } else if (avgLatency >= 2500) {
+      level = 'MODERATE';
+      multiplier = 1.5;
+      label = `Sedang (${secStr}s, 1.5x)`;
+      statusText = `Latensi server: Sedang ~${secStr} detik (Kecepatan disesuaikan ke 1.5x)`;
+    } else {
+      level = 'OPTIMAL';
+      multiplier = 1.0;
+      label = `Normal (${secStr}s, 1.0x)`;
+      statusText = `Latensi server: Normal ~${secStr} detik (Kecepatan 1.0x)`;
+    }
+  } else {
+    level = 'OPTIMAL';
+    multiplier = 1.0;
+    label = 'Normal (1.0x)';
+    statusText = 'Latensi server: Belum terukur (Normal 1.0x)';
+  }
+
+  runnerState.serverHealth = {
+    level,
+    multiplier,
+    avgLatency,
+    label,
+    statusText
+  };
+
+  chrome.storage.local.set({ runnerState }).catch(() => {});
+  broadcastToPopup({ action: 'SERVER_HEALTH_UPDATE', health: runnerState.serverHealth });
+  return runnerState.serverHealth;
+}
+
+function getEffectiveStepDelay() {
+  const base = (runnerState.options && runnerState.options.stepDelay) || 1500;
+  if (runnerState.options && runnerState.options.adaptiveThrottling === false) return base;
+  const health = runnerState.serverHealth || evaluateServerHealth();
+  return Math.round(base * (health.multiplier || 1.0));
+}
+
+async function waitAdaptiveCooldown() {
+  const now = Date.now();
+  if (runnerState.options && runnerState.options.adaptiveThrottling !== false && now < serverCooldownUntil) {
+    const waitMs = Math.min(15000, serverCooldownUntil - now);
+    console.log(`[TUNTAS Adaptive] Menunggu cooldown selama ${Math.round(waitMs / 1000)} detik...`);
+    broadcastToPopup({
+      action: 'UPDATE_STEP',
+      step: 'COOLDOWN',
+      details: `Menunggu pemulihan server FASIH (${Math.round(waitMs / 1000)} detik)...`
+    });
+    await sleep(waitMs);
+    evaluateServerHealth();
+  }
+}
+
+function getAdaptiveInterItemDelay(isFastSkip = false) {
+  if (isFastSkip) return getRandomInt(150, 300);
+  const baseMin = 400;
+  const baseMax = 750;
+  if (runnerState.options && runnerState.options.adaptiveThrottling === false) {
+    return getRandomInt(baseMin, baseMax);
+  }
+  const health = runnerState.serverHealth || evaluateServerHealth();
+  const mult = health.multiplier || 1.0;
+  return getRandomInt(Math.round(baseMin * mult), Math.round(baseMax * mult));
+}
 
 // Klasifikasi kategori error untuk laporan Webhook
 function classifyErrorCategory(errorMsg = '') {
@@ -438,6 +586,7 @@ async function loadStateFromStorage() {
   if (data.runnerOptions) {
     runnerState.options = { ...runnerState.options, ...data.runnerOptions };
   }
+  evaluateServerHealth();
   return data.fasihQueue || [];
 }
 
@@ -600,8 +749,16 @@ async function runApiStep(item, index) {
   const row = { assignmentId: id, values: item.apiValues || {}, remarks: item.apiRemarks || {}, namaUsaha: item.namaUsahaExcel || item.nama_usaha || '' };
   const autoNote = item.apiNoteCode || '#1';
   const call = async (dr) => {
-    try { return await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote }); }
-    catch (e) { return { status: 'ERROR', error: e.message || String(e) }; }
+    const t0 = Date.now();
+    try {
+      const resp = await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote });
+      const ok = resp && resp.status === 'DONE';
+      recordServerLatency(Date.now() - t0, ok, ok ? '' : (resp && resp.error));
+      return resp;
+    } catch (e) {
+      recordServerLatency(Date.now() - t0, false, e.message || String(e));
+      return { status: 'ERROR', error: e.message || String(e) };
+    }
   };
   let res = await call(dryRun);
   let verifikasi = '';
@@ -762,7 +919,11 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
     await chrome.storage.local.set({ runnerState });
 
     // Tunggu sampai tab selesai loading (Smart Timeout 35s & 1x Reload jika macet)
+    const tLoadStart = Date.now();
     let isTabComplete = await waitForTabComplete(tab.id, 35000);
+    const tLoadDuration = Date.now() - tLoadStart;
+    recordServerLatency(tLoadDuration, isTabComplete, isTabComplete ? '' : 'Timeout loading tab >35 detik');
+
     if (!isTabComplete && runnerState.status === 'RUNNING') {
       console.log(`[FASIH BG] Tab ${tab.id} loading lambat (>35s). Mencoba 1x Smart Reload...`);
       broadcastToPopup({
@@ -771,8 +932,10 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
         details: 'Loading lambat (>35 detik). Memuat ulang (reload) halaman...'
       });
       try {
+        const tReloadStart = Date.now();
         await chrome.tabs.reload(tab.id);
         isTabComplete = await waitForTabComplete(tab.id, 35000);
+        recordServerLatency(Date.now() - tReloadStart, isTabComplete, isTabComplete ? '' : 'Timeout loading reload >35 detik');
       } catch (eReload) {
         console.warn('Gagal reload tab:', eReload);
       }
@@ -791,12 +954,13 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
 
     // Jika setelah 1x reload halaman tetap tidak selesai dimuat (>70 detik)
     if (!isTabComplete) {
+      triggerServerCooldown('Timeout loading tab 70 detik');
       const timeoutError = 'TIMEOUT_LOADING: Website FASIH tidak merespons setelah 70 detik.';
       await updateItemStatus(index, 'FAILED', timeoutError);
       runnerState.consecutiveFailures = (runnerState.consecutiveFailures || 0) + 1;
       checkCircuitBreaker();
       shouldCloseCurrentTab = Boolean(runnerState.options.closeTabOnComplete);
-      await randomSleep(1000, 1500);
+      await sleep(getAdaptiveInterItemDelay(false));
       return { tabIdToClose: shouldCloseCurrentTab && tab ? tab.id : null };
     }
 
@@ -842,6 +1006,7 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
       action: 'EXECUTE_FASIH_WORKFLOW',
       options: {
         ...runnerState.options,
+        stepDelay: getEffectiveStepDelay(),
         targetUrl: targetUrl,
         isActiveTabTest: false,
         mode: (queue[index] && queue[index].mode) || runnerState.options.mode,
@@ -1194,6 +1359,9 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
       if (response && response.result && response.result.isServerDown) {
         err = response.result.error || err;
       }
+      if (isServerIssue) {
+        triggerServerCooldown(err);
+      }
       await updateItemStatus(index, 'FAILED', err);
       if (isServerIssue) {
         runnerState.consecutiveFailures = (runnerState.consecutiveFailures || 0) + 1;
@@ -1217,7 +1385,7 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
 
     if (shouldCloseCurrentTab && shouldCloseByOption && tab && tab.id) {
       if (!isFastSkip) {
-        await randomSleep(400, 750);
+        await sleep(getAdaptiveInterItemDelay(false));
       }
 
       const closedNow = await safeCloseTab(tab.id);
@@ -1227,12 +1395,12 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
           runnerState.activeTabId = null;
           await chrome.storage.local.set({ runnerState });
         }
-        await sleep(isFastSkip ? 150 : 400);
+        await sleep(getAdaptiveInterItemDelay(isFastSkip));
       } else {
         // Jika window hanya punya 1 tab atau Chrome sempat mengunci tab strip,
         // serahkan tab.id ini ke iterasi berikutnya agar ditutup begitu tab baris selanjutnya dibuka!
         tabIdToClose = tab.id;
-        await sleep(isFastSkip ? 150 : 400);
+        await sleep(getAdaptiveInterItemDelay(isFastSkip));
       }
     }
 
@@ -1277,6 +1445,7 @@ async function startQueueRunner(fromIndex = null, { forceRestart = false } = {})
     let targetIndex = fromIndex;
 
     while (runnerState.status === 'RUNNING' && queueRunToken === myRunToken) {
+      await waitAdaptiveCooldown();
       const data = await chrome.storage.local.get(['fasihQueue', 'runnerState']);
       if (data.runnerState && data.runnerState.status !== 'RUNNING') {
         runnerState.status = data.runnerState.status;
@@ -1558,6 +1727,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       if (request.options) {
         runnerState.options = { ...runnerState.options, ...request.options };
       }
+      evaluateServerHealth();
 
       // Cari item PENDING mulai dari runnerState.currentIndex, lalu fallback dari awal (index 0)
       let startIndex = findNextPendingIndex(queue, runnerState.currentIndex);
@@ -1904,7 +2074,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         let response = await sendTabMessageWithRetry(tabId, {
           action: 'EXECUTE_FASIH_WORKFLOW',
-          options: { ...opts, targetUrl: targetEditUrl }
+          options: { ...opts, stepDelay: getEffectiveStepDelay(), targetUrl: targetEditUrl }
         });
 
         for (let redirectCount = 0; redirectCount < 8; redirectCount++) {
@@ -2067,6 +2237,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     keepAliveTick().finally(() => sendResponse({ ok: true }));
     return true;
   }
+  if (request.action === 'THROTTLE_CONFIG') {
+    if (request.options) {
+      runnerState.options = { ...runnerState.options, ...request.options };
+    }
+    evaluateServerHealth();
+    sendResponse({ ok: true, health: runnerState.serverHealth });
+    return true;
+  }
 
   if (request.action === 'REVOKE_TRIGGERED') {
       runnerState.tabRevokedRecently = true;
@@ -2147,8 +2325,11 @@ chrome.alarms.onAlarm.addListener((a) => {
 });
 chrome.runtime.onInstalled.addListener(() => {
   setupKeepAlive().catch(() => {});
+  loadStateFromStorage().catch(() => {});
 });
 chrome.runtime.onStartup.addListener(() => {
   setupKeepAlive().catch(() => {});
+  loadStateFromStorage().catch(() => {});
 });
+loadStateFromStorage().catch(() => {});
 setupKeepAlive().catch(() => {});

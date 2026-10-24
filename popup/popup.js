@@ -41,6 +41,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const checkAutoSsoLogin = $('checkAutoSsoLogin');
   const checkKeepAlive = $('checkKeepAlive');
   const keepAliveStatus = $('keepAliveStatus');
+  const checkAdaptiveThrottling = $('checkAdaptiveThrottling');
+  const throttleStatus = $('throttleStatus');
+  const serverHealthBadge = $('serverHealthBadge');
   const checkAutoRevoke = $('checkAutoRevoke');
   const checkRequireConfirm = $('checkRequireConfirm');
   const checkAutoApprove = $('checkAutoApprove');
@@ -586,6 +589,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       autoSubmitSurvey: true,
       autoApprove: checkAutoApprove.checked,
       closeTabOnComplete: checkCloseTab.checked,
+      adaptiveThrottling: checkAdaptiveThrottling ? checkAdaptiveThrottling.checked : true,
       apiDryRun: checkApiDryRun ? checkApiDryRun.checked : true
     };
   }
@@ -595,6 +599,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   [commentInput, dc0TargetSelect, dc1TargetSelect, catatanDigantiInput, delayInput, periodeInput,
     ssoEmailInput, ssoPasswordInput, pcNameInput, webhookUrlInput, checkEnableWebhook, checkAutoSsoLogin,
+    checkKeepAlive, checkAdaptiveThrottling,
     checkAutoRevoke,
     checkRequireConfirm, checkAutoApprove, checkCloseTab, checkApiDryRun]
     .filter(Boolean)
@@ -1295,6 +1300,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (o.requireManualConfirm !== undefined) checkRequireConfirm.checked = o.requireManualConfirm;
     if (o.autoApprove !== undefined) checkAutoApprove.checked = o.autoApprove;
     if (o.closeTabOnComplete !== undefined) checkCloseTab.checked = o.closeTabOnComplete;
+    if (o.adaptiveThrottling !== undefined && checkAdaptiveThrottling) checkAdaptiveThrottling.checked = o.adaptiveThrottling;
+    if (data.runnerState && data.runnerState.serverHealth) {
+      updateThrottleUI(data.runnerState.serverHealth);
+    } else {
+      updateThrottleUI(null);
+    }
 
     if (data.fasihAllRows && data.fasihAllRows.length) {
       allRows = data.fasihAllRows;
@@ -1354,6 +1365,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           setRunnerStatus(res.runnerState.status || 'IDLE');
           if (res.runnerState.status === 'IDLE') showIdleButtons();
         }
+        if (res.runnerState && res.runnerState.serverHealth) {
+          updateThrottleUI(res.runnerState.serverHealth);
+        }
       });
     } else if (st === 'PAUSED') {
       showRunningButtons();
@@ -1406,6 +1420,47 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.runtime.sendMessage({ action: 'KEEPALIVE_NOW' }).catch(() => {});
   }
 
+  // ---------- Adaptive Throttling ----------
+  let lastServerHealth = null;
+  function updateThrottleUI(health) {
+    if (health) lastServerHealth = health;
+    const h = lastServerHealth || { level: 'OPTIMAL', label: 'Normal (1.0x)', statusText: 'Latensi server: Belum terukur (Normal 1.0x)' };
+    const isEnabled = checkAdaptiveThrottling ? checkAdaptiveThrottling.checked : true;
+
+    if (!isEnabled) {
+      if (throttleStatus) {
+        throttleStatus.className = 'throttle-status disabled';
+        throttleStatus.textContent = 'Adaptive Throttling dinonaktifkan (kecepatan tetap)';
+      }
+      if (serverHealthBadge) {
+        serverHealthBadge.className = 'server-health-pill pill-off';
+        serverHealthBadge.textContent = 'Throttling: Off';
+      }
+      return;
+    }
+
+    const lvl = (h.level || 'optimal').toLowerCase();
+    if (throttleStatus) {
+      throttleStatus.className = `throttle-status status-${lvl}`;
+      throttleStatus.textContent = h.statusText || 'Latensi server: Normal (1.0x)';
+    }
+    if (serverHealthBadge) {
+      serverHealthBadge.className = `server-health-pill pill-${lvl}`;
+      serverHealthBadge.textContent = `Server: ${h.label || 'Normal (1.0x)'}`;
+    }
+  }
+
+  if (checkAdaptiveThrottling) {
+    checkAdaptiveThrottling.addEventListener('change', () => {
+      saveSettings();
+      updateThrottleUI(null);
+      chrome.runtime.sendMessage({
+        action: 'THROTTLE_CONFIG',
+        options: getOptions()
+      }).catch(() => {});
+    });
+  }
+
   // ---------- Pesan dari background ----------
   chrome.runtime.onMessage.addListener((request) => {
     if (request.action === 'QUEUE_UPDATED') {
@@ -1442,6 +1497,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       btnPause.classList.add('hidden');
       btnResume.classList.remove('hidden');
       alert(request.message);
+    }
+    if (request.action === 'SERVER_HEALTH_UPDATE') {
+      updateThrottleUI(request.health);
     }
     if (request.action === 'ALL_COMPLETED') {
       setRunnerStatus('COMPLETED');
