@@ -186,6 +186,8 @@ Untuk setiap baris pada file Excel:
        - **#STOP**: Menghentikan proses otomasi bot.
        - **#TAMBAH [link_fasih]**: Menambahkan tautan dokumen baru ke dalam antrian bot tanpa perlu mengunggah ulang file Excel.
        - *Anti-Bentrok*: Menggunakan awalan tanda pagar (#) sehingga bisa berjalan di nomor WhatsApp yang sama dengan CS Kantor (SI BOLU) secara terisolasi dan aman.
+       - *Adaptive Heartbeat & Hemat Beban Server*: Menggunakan ritme adaptif yang cerdas (8 detik saat antrian berjalan agar responsif terhadap perintah jeda/lanjut, 10 detik saat dijeda, dan santai 35 detik saat bot selesai/idle agar tidak membebani n8n). Status langsung disinkronkan secara instan (0 detik) begitu status antrian berubah (mulai, jeda, lanjut, atau selesai).
+       - *Tips Pengaturan n8n*: Di menu Workflow Settings n8n, set opsi **"Save executions"** ke **"Only on error"** agar riwayat eksekusi di n8n tetap bersih dari catatan heartbeat rutin.
     - **Circuit Breaker**: Pengaman otomatis yang akan menjeda antrian jika terjadi 3 kegagalan beruntun akibat server FASIH down atau timeout jaringan.
 5. **Mulai Eksekusi**:
    - Klik tombol **Mulai Otomasi**.

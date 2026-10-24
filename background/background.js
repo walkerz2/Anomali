@@ -256,24 +256,40 @@ function getAdaptiveInterItemDelay(isFastSkip = false) {
   return getRandomInt(Math.round(baseMin * mult), Math.round(baseMax * mult));
 }
 
-// ===== Two-Way WhatsApp Remote Control & Cloud Sync =====
+// ===== Two-Way WhatsApp Remote Control & Cloud Sync (Adaptive Heartbeat) =====
 const CLOUD_SYNC_ALARM = 'TUNTAS_CLOUD_SYNC_ALARM';
 let isSyncingWithCloud = false;
-let cloudSyncTimer = null;
+let cloudSyncTimeoutId = null;
 
-function startCloudSync() {
-  if (cloudSyncTimer) return;
-  cloudSyncTimer = setInterval(async () => {
+function getCloudSyncInterval() {
+  if (!runnerState || !runnerState.status) return 35000;
+  if (runnerState.status === 'RUNNING') return 8000;  // 8s saat antrian jalan (responsif terhadap #JEDA/#STOP)
+  if (runnerState.status === 'PAUSED') return 10000;  // 10s saat dijeda (responsif terhadap #LANJUT)
+  return 35000; // 35s saat IDLE / STOPPED (hemat request & tidak membebani server saat nganggur)
+}
+
+function scheduleNextCloudSync(delayMs = null) {
+  if (cloudSyncTimeoutId) {
+    clearTimeout(cloudSyncTimeoutId);
+    cloudSyncTimeoutId = null;
+  }
+  const delay = delayMs !== null ? delayMs : getCloudSyncInterval();
+  cloudSyncTimeoutId = setTimeout(async () => {
     try {
       await syncWithCloudWebhook();
     } catch (e) {}
-  }, 7000);
+    scheduleNextCloudSync();
+  }, delay);
+}
+
+function startCloudSync() {
+  scheduleNextCloudSync(2000);
 }
 
 function stopCloudSync() {
-  if (cloudSyncTimer) {
-    clearInterval(cloudSyncTimer);
-    cloudSyncTimer = null;
+  if (cloudSyncTimeoutId) {
+    clearTimeout(cloudSyncTimeoutId);
+    cloudSyncTimeoutId = null;
   }
 }
 
@@ -1651,6 +1667,7 @@ async function startQueueRunner(fromIndex = null, { forceRestart = false } = {})
       runnerState.status = 'IDLE';
       runnerState.activeTabId = null;
       stopKeepAlive();
+      scheduleNextCloudSync(0);
       await chrome.storage.local.set({ runnerState });
       broadcastToPopup({ action: 'ALL_COMPLETED' });
     }
@@ -1870,6 +1887,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         runnerState.options = { ...runnerState.options, ...request.options };
       }
       evaluateServerHealth();
+      scheduleNextCloudSync(0);
 
       // Cari item PENDING mulai dari runnerState.currentIndex, lalu fallback dari awal (index 0)
       let startIndex = findNextPendingIndex(queue, runnerState.currentIndex);
@@ -1933,6 +1951,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'PAUSE_QUEUE') {
     runnerState.status = 'PAUSED';
     chrome.storage.local.set({ runnerState });
+    scheduleNextCloudSync(0);
     if (runnerState.activeTabId) {
       chrome.tabs.sendMessage(runnerState.activeTabId, { action: 'PAUSE_WORKFLOW' }).catch(() => {});
     }
@@ -1954,6 +1973,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const queue = await loadStateFromStorage();
       runnerState.consecutiveFailures = 0;
       runnerState.status = 'RUNNING';
+      scheduleNextCloudSync(0);
       if (request.options) {
         runnerState.options = { ...runnerState.options, ...request.options };
       }
@@ -2473,7 +2493,7 @@ async function keepAliveTick() {
 function setupCloudSyncAlarm() {
   chrome.alarms.get(CLOUD_SYNC_ALARM, (al) => {
     if (!al) {
-      chrome.alarms.create(CLOUD_SYNC_ALARM, { periodInMinutes: 0.2 });
+      chrome.alarms.create(CLOUD_SYNC_ALARM, { periodInMinutes: 0.6 });
     }
   });
 }
