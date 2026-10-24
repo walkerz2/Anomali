@@ -624,7 +624,47 @@ async function runApiStep(item, index) {
   }
   if (res && res.status === 'ABORTED') { await updateItemStatus(index, 'PENDING', 'Diberhentikan (Stop)'); return { done: true }; }
   if (!res || res.status !== 'DONE') {
-    await updateItemStatus(index, 'FAILED', `API: ${(res && res.error) || 'tidak ada respons'}`);
+    const errMsg = (res && res.error) || 'tidak ada respons';
+    if (/401|login FASIH/i.test(errMsg) && runnerState.options.autoSsoLogin !== false) {
+      closeApiHelperTab();
+      await updateItemStatus(index, 'PROCESSING', 'Sesi FASIH habis (401), mencoba login SSO Eksternal...');
+      try {
+        const loginTab = await chrome.tabs.create({ url: 'https://fasih-sm.bps.go.id/app/', active: false });
+        await waitForTabComplete(loginTab.id, 35000);
+        await sleep(1500);
+        const ssoResp = await sendTabMessageWithRetry(loginTab.id, {
+          action: 'EXECUTE_FASIH_WORKFLOW',
+          options: { ...runnerState.options, targetUrl: 'https://fasih-sm.bps.go.id/app/' }
+        });
+        for (let r = 0; r < 6; r++) {
+          const tNow = await chrome.tabs.get(loginTab.id).catch(() => null);
+          const uNow = (tNow && tNow.url) || '';
+          if (isExternalSsoIdpUrl(uNow) || (ssoResp && ssoResp.result && ssoResp.result.ssoStage === 'SUBMITTED_CREDENTIALS')) {
+            await waitForPostSsoLanding(loginTab.id, 18000);
+            break;
+          }
+          if (uNow.includes('fasih-sm.bps.go.id') && !isSsoOrLoginUrl(uNow)) break;
+          await sleep(1000);
+        }
+        await chrome.tabs.remove(loginTab.id).catch(() => {});
+      } catch (e) {}
+      // Coba panggil API sekali lagi pasca-login
+      res = await call(dryRun);
+    }
+  }
+
+  if (!res || res.status !== 'DONE') {
+    const errMsg = (res && res.error) || 'tidak ada respons';
+    await updateItemStatus(index, 'FAILED', `API: ${errMsg}`);
+    if (/401|login FASIH/i.test(errMsg)) {
+      closeApiHelperTab();
+      runnerState.status = 'PAUSED';
+      await chrome.storage.local.set({ runnerState });
+      broadcastToPopup({
+        action: 'CIRCUIT_BREAKER_TRIGGERED',
+        message: 'Otomasi dijeda otomatis: Sesi login FASIH belum aktif / habis (HTTP 401). Silakan login akun FASIH di browser, lalu klik Lanjut (Resume).'
+      });
+    }
     return { done: true };
   }
   const r = res.result;

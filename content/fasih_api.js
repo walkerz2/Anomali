@@ -258,7 +258,21 @@
       'b4_r26d', 'r26d', 'r26_d',
       'biaya_produksi_bln', 'biaya_operasional_bln', 'r30b', 'r30_b',
       'r22d', 'r22_d', 'r22b', 'r22c', 'biaya_operasional_ub'
-    ]
+    ],
+
+    // Alias Nama Kolom Deskriptif (NTB / Excel Bebas)
+    'nilai_pendapatan': ['r27a', 'b4_r27a', 'nilai_pendapatan_bln', 'r23a', 'r31a'],
+    'nilai_pendapatan_bln': ['nilai_pendapatan_bln', 'r31a', 'r27a', 'b4_r27a', 'r23a'],
+    'pendapatan': ['r27a', 'b4_r27a', 'nilai_pendapatan_bln', 'r23a', 'r31a'],
+    'pendapatan_bln': ['nilai_pendapatan_bln', 'r31a', 'r27a', 'b4_r27a', 'r23a'],
+    'biaya_produksi': ['r26b', 'b4_r26b', 'biaya_produksi_bln', 'r22b', 'r23a'],
+    'biaya_produksi_bln': ['biaya_produksi_bln', 'r30b', 'r26b', 'b4_r26b', 'r22b'],
+    'biaya_pembelian': ['r26c', 'b4_r26c', 'biaya_pembelian_bln', 'r22c'],
+    'biaya_pembelian_bln': ['biaya_pembelian_bln', 'r30b', 'r26c', 'b4_r26c', 'r22c'],
+    'operasional': ['r26d', 'b4_r26d', 'biaya_operasional_bln', 'r22d', 'r30b'],
+    'operasional_bln': ['biaya_operasional_bln', 'operasional_bln', 'r30b', 'r26d', 'b4_r26d', 'r22d'],
+    'biaya_operasional': ['r26d', 'b4_r26d', 'biaya_operasional_bln', 'r22d', 'r30b'],
+    'biaya_operasional_bln': ['biaya_operasional_bln', 'r30b', 'r26d', 'b4_r26d', 'r22d'],
   };
 
   /* ---------------- kolom tanpa #angka -> dataKey lengkap di dokumen ---------------- */
@@ -426,27 +440,37 @@
       }
     }
 
-    // 2. Catatan (comment.json) — tidak ditulis dua kali bila teks sama sudah ada
+    // 2. Catatan (comment.json) — Selalu sertakan catatan baru (berbeda dari fitur tanpa perubahan)
     const c = JSON.parse(asg.comment || '{"dataKey":"","notes":[]}');
     c.notes = c.notes || [];
     const remarks = Object.entries(row.remarks || {}).filter(([, t]) => String(t ?? '').trim() !== '');
-    // Hasil akhir menu ini: setiap variabel yang berubah diberi catatan kode #1
+    
+    // Setiap variabel yang berubah / diimputasi diberi catatan (default #1 atau sesuai kode_catatan)
     const kode = String(autoNote ?? '').trim();
     if (kode) {
       for (const ch of changes.slice()) {
         if (!remarks.some(([dk, t]) => dk === ch.dataKey && String(t).trim() === kode)) remarks.push([ch.dataKey, kode]);
       }
+      for (const targetKey of Object.keys(values)) {
+        if (!remarks.some(([dk, t]) => dk === targetKey && String(t).trim() === kode)) remarks.push([targetKey, kode]);
+      }
     }
     if (remarks.length) {
       const sender = await myUsername(asg.survey_period_id);
+      const fiveMinAgo = Date.now() - 5 * 60 * 1000;
       for (const [dk, t] of remarks) {
         const text = String(t).trim();
         let note = c.notes.find((n) => n.dataKey === dk);
         if (!note) { note = { dataKey: dk, comments: [] }; c.notes.push(note); }
         note.comments = note.comments || [];
-        if (note.comments.some((x) => String(x.comment).trim() === text)) continue;
-        note.comments.push({ datetime: new Date().toISOString(), sender, comment: text });
-        changes.push({ dataKey: `catatan:${dk}`, dari: '', ke: text });
+        
+        // Tetap menambahkan catatan baru jika belum ada catatan yang sama dalam 5 menit terakhir
+        // (catatan lama seperti #0 atau catatan hari sebelumnya tidak menghalangi pencatatan #1)
+        const alreadyRecent = note.comments.some((x) => String(x.comment).trim() === text && new Date(x.datetime || 0).getTime() > fiveMinAgo);
+        if (!alreadyRecent) {
+          note.comments.push({ datetime: new Date().toISOString(), sender, comment: text });
+          changes.push({ dataKey: `catatan:${dk}`, dari: '', ke: text });
+        }
       }
     }
 
