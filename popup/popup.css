@@ -1055,3 +1055,73 @@ body {
 .throttle-queue-delay b {
   color: #E65100;
 }
+
+/* ===== WhatsApp Remote & Cloud Queue Banner ===== */
+.wa-sync-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  transition: all 0.25s ease;
+}
+
+.wa-sync-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #166534;
+  font-weight: 500;
+}
+
+.wa-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 2px #dcfce7;
+  display: inline-block;
+  flex-shrink: 0;
+  transition: all 0.25s ease;
+}
+
+.wa-dot.disconnected {
+  background: #94a3b8;
+  box-shadow: 0 0 0 2px #f1f5f9;
+}
+
+.wa-dot.error {
+  background: #ef4444;
+  box-shadow: 0 0 0 2px #fee2e2;
+}
+
+.wa-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  letter-spacing: 0.2px;
+  transition: all 0.25s ease;
+}
+
+.wa-badge-connected {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.wa-badge-disconnected {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.wa-badge-error {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}

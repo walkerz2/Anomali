@@ -258,7 +258,22 @@
           </div>
         </div>
 
+        <!-- Pengaturan WhatsApp Two-Way Remote & Dynamic Cloud Queue -->
+        <div class="config-grid config-grid-webhook">
+          <div class="form-group" style="grid-column: span 2;">
+            <label for="whatsappSyncUrlInput" title="URL Webhook n8n dua arah untuk monitoring dan remote control bot via WhatsApp (#STATUS, #JEDA, #LANJUT, #STOP, #TAMBAH)">URL Sync WhatsApp (Two-Way &amp; Cloud Queue):</label>
+            <div class="webhook-input-row">
+              <input type="url" id="whatsappSyncUrlInput" value="https://n8n7309.online/webhook/tuntas-bot-sync" placeholder="https://n8n7309.online/webhook/tuntas-bot-sync" spellcheck="false">
+              <button id="btnTestWhatsAppSync" class="btn-ghost btn-test-webhook" type="button" title="Kirim status uji coba ke WhatsApp">Tes Sync</button>
+            </div>
+          </div>
+        </div>
+
         <div class="checkbox-group">
+          <label class="checkbox-label" title="Izinkan pengendalian jarak jauh dan penambahan link antrian dinamis langsung lewat chat WhatsApp (#STATUS, #JEDA, #LANJUT, #STOP, #TAMBAH)">
+            <input type="checkbox" id="checkEnableWhatsAppRemote" checked>
+            <span><b>WhatsApp Remote &amp; Cloud Queue</b> — Kendalikan bot (#STATUS, #JEDA, #LANJUT, #STOP, #TAMBAH) via WA</span>
+          </label>
           <label class="checkbox-label" title="Secara dinamis memantau kecepatan server FASIH dan menyesuaikan jeda langkah serta jeda antrian saat server melambat atau tinggi beban">
             <input type="checkbox" id="checkAdaptiveThrottling" checked>
             <span><b>Adaptive Throttling</b> — Penyesuaian kecepatan otomatis saat server melambat</span>
@@ -356,6 +371,15 @@
         </div>
         <div class="progress-bar-container">
           <div id="progressBar" class="progress-bar" style="width: 0%;"></div>
+        </div>
+
+        <!-- Status WhatsApp Two-Way Remote & Cloud Queue -->
+        <div id="waSyncBanner" class="wa-sync-banner">
+          <div class="wa-sync-left">
+            <span id="waSyncDot" class="wa-dot"></span>
+            <span id="waSyncText">WA Remote: <b>Siap Sinkron (<span id="waSyncPcLabel">PC 1</span>)</b></span>
+          </div>
+          <span id="waSyncBadge" class="wa-badge wa-badge-connected">Aktif</span>
         </div>
 
         <!-- Status Kecepatan Adaptif & Latensi Server -->

@@ -180,6 +180,11 @@ Untuk setiap baris pada file Excel:
     - **Auto Approve**: Centang untuk otomatis membuka halaman review dan mengklik tombol Approve setelah survei berhasil disubmit.
     - **Notifikasi Webhook (n8n / Telegram)**: Mengirim notifikasi otomatis secara selektif ke endpoint Webhook. Notifikasi **hanya** dikirim jika ekstensi macet/tidak jalan (server FASIH down, 500/502/503/504, timeout >35s/70s, SSO gagal, koneksi terputus, formulir tidak terbuka) atau kandas dalam proses pemberian remark (pertanyaan target tidak ditemukan, modal catatan gagal dibuka, unit usaha/KBLI tidak ditemukan, gagal revoke, atau galat formulir). Event wajar seperti remark sudah ada sebelumnya, link URL Excel tidak valid, atau kendala tombol Approve setelah dokumen sukses terkirim tidak akan memicu notifikasi.
     - **Circuit Breaker**: Pengaman otomatis yang akan menjeda antrian jika terjadi 3 kegagalan beruntun akibat server FASIH down atau timeout jaringan.
+    - **WhatsApp Two-Way Remote & Dynamic Cloud Queue**: Memungkinkan Anda memantau seluruh PC yang sedang bekerja dan mengendalikannya secara nirkabel langsung dari obrolan WhatsApp melalui n8n:
+      - **Monitoring Status Real-Time**: Perintah `#STATUS` untuk melihat progress semua PC (jumlah baris selesai, status server, nama usaha yang sedang diproses), atau `#STATUS PC 1` untuk memeriksa PC tertentu.
+      - **Remote Control (Jeda, Lanjut, Stop)**: Perintah `#JEDA`, `#LANJUT`, atau `#STOP` untuk mengontrol semua PC sekaligus atau unit tertentu (misal `#JEDA PC 2`, `#LANJUT PC 1`).
+      - **Dynamic Cloud Queue**: Perintah `#TAMBAH [link_fasih]` (contoh: `#TAMBAH https://fasih-sm.bps.go.id/app/assignment-detail/...`) untuk menyisipkan link kuesioner baru ke dalam antrian secara langsung tanpa harus membuka laptop atau mengunggah ulang file Excel!
+      - **Bantuan Perintah**: Ketik `#QUERY` atau `#HELP` di WhatsApp untuk melihat daftar perintah bot lengkap beserta formatnya.
 5. **Mulai Eksekusi**:
    - Klik tombol **Mulai Otomasi**.
    - Ekstensi akan membuka tab, memproses alur step-by-step, dan memperbarui tabel status secara real-time.

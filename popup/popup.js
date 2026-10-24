@@ -36,6 +36,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   const ssoPasswordInput = $('ssoPasswordInput');
   const pcNameInput = $('pcNameInput');
   const webhookUrlInput = $('webhookUrlInput');
+  const whatsappSyncUrlInput = $('whatsappSyncUrlInput');
+  const btnTestWhatsAppSync = $('btnTestWhatsAppSync');
+  const checkEnableWhatsAppRemote = $('checkEnableWhatsAppRemote');
+  const waSyncBanner = $('waSyncBanner');
+  const waSyncDot = $('waSyncDot');
+  const waSyncText = $('waSyncText');
+  const waSyncPcLabel = $('waSyncPcLabel');
+  const waSyncBadge = $('waSyncBadge');
+  const DEFAULT_WHATSAPP_SYNC_URL = 'https://n8n7309.online/webhook/tuntas-bot-sync';
   const btnTestWebhook = $('btnTestWebhook');
   const checkEnableWebhook = $('checkEnableWebhook');
   const checkAutoSsoLogin = $('checkAutoSsoLogin');
@@ -564,6 +573,79 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
 
+
+  // ---------- WhatsApp Two-Way Remote UI ----------
+  function updateWhatsAppSyncUI(syncState) {
+    if (!waSyncBanner || !waSyncBadge) return;
+    const isEnabled = checkEnableWhatsAppRemote ? checkEnableWhatsAppRemote.checked : true;
+    const pc = (pcNameInput && pcNameInput.value.trim()) || (syncState && syncState.pc) || 'PC 1';
+    if (waSyncPcLabel) waSyncPcLabel.textContent = pc;
+
+    if (!isEnabled) {
+      if (waSyncDot) waSyncDot.className = 'wa-dot disconnected';
+      if (waSyncBadge) {
+        waSyncBadge.textContent = 'Nonaktif';
+        waSyncBadge.className = 'wa-badge wa-badge-disconnected';
+      }
+      if (waSyncText) waSyncText.innerHTML = `WA Remote: <b>Nonaktif (${pc})</b>`;
+      return;
+    }
+
+    if (!syncState || syncState.ok === undefined || syncState.ok === true) {
+      if (waSyncDot) waSyncDot.className = 'wa-dot';
+      if (waSyncBadge) {
+        waSyncBadge.textContent = 'Aktif & Terhubung';
+        waSyncBadge.className = 'wa-badge wa-badge-connected';
+      }
+      if (waSyncText) waSyncText.innerHTML = `WA Remote: <b>Terhubung (${pc})</b>`;
+    } else {
+      if (waSyncDot) waSyncDot.className = 'wa-dot error';
+      if (waSyncBadge) {
+        waSyncBadge.textContent = 'Terputus';
+        waSyncBadge.className = 'wa-badge wa-badge-error';
+      }
+      if (waSyncText) waSyncText.innerHTML = `WA Remote: <b style="color:#b91c1c;">${syncState.text || 'Gagal'}</b>`;
+    }
+  }
+
+  if (checkEnableWhatsAppRemote) {
+    checkEnableWhatsAppRemote.addEventListener('change', () => {
+      updateWhatsAppSyncUI();
+      saveSettings();
+    });
+  }
+
+  if (pcNameInput) {
+    pcNameInput.addEventListener('input', () => {
+      if (waSyncPcLabel) waSyncPcLabel.textContent = pcNameInput.value.trim() || 'PC 1';
+    });
+  }
+
+  if (btnTestWhatsAppSync) {
+    btnTestWhatsAppSync.addEventListener('click', async () => {
+      btnTestWhatsAppSync.disabled = true;
+      btnTestWhatsAppSync.textContent = 'Mengirim...';
+      try {
+        const res = await chrome.runtime.sendMessage({
+          action: 'TEST_WHATSAPP_SYNC',
+          whatsappSyncUrl: whatsappSyncUrlInput ? whatsappSyncUrlInput.value.trim() : ''
+        });
+        if (res && res.ok) {
+          updateWhatsAppSyncUI({ ok: true, pc: pcNameInput.value.trim() || 'PC 1' });
+          alert('✅ Sukses terhubung ke Webhook WhatsApp Sync!\nData status bot berhasil diterima oleh n8n.');
+        } else {
+          updateWhatsAppSyncUI({ ok: false, text: res && res.error });
+          alert(`⚠️ Gagal terhubung ke URL Sync: ${(res && res.error) || 'Tidak ada respons'}`);
+        }
+      } catch (e) {
+        alert(`❌ Error: ${e.message || String(e)}`);
+      } finally {
+        btnTestWhatsAppSync.disabled = false;
+        btnTestWhatsAppSync.textContent = 'Tes Sync';
+      }
+    });
+  }
+
   // ---------- Adaptive Throttling UI ----------
   function updateThrottleUI(state) {
     if (!state || !throttleBadge) return;
@@ -657,6 +739,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       rowStart: rowStartInput && rowStartInput.value ? parseInt(rowStartInput.value, 10) : '',
       rowEnd: rowEndInput && rowEndInput.value ? parseInt(rowEndInput.value, 10) : '',
       pcName: (pcNameInput && pcNameInput.value.trim()) || 'PC 1',
+      enableWhatsAppRemote: checkEnableWhatsAppRemote ? checkEnableWhatsAppRemote.checked : true,
+      whatsappSyncUrl: (whatsappSyncUrlInput && whatsappSyncUrlInput.value.trim()) || DEFAULT_WHATSAPP_SYNC_URL,
       enableWebhook: checkEnableWebhook ? checkEnableWebhook.checked : true,
       webhookUrl: (webhookUrlInput && webhookUrlInput.value.trim()) || DEFAULT_WEBHOOK_URL,
       autoSsoLogin: checkAutoSsoLogin ? checkAutoSsoLogin.checked : true,
@@ -1369,7 +1453,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (o.ssoEmail && ssoEmailInput) ssoEmailInput.value = o.ssoEmail;
     if (o.ssoPassword && ssoPasswordInput) ssoPasswordInput.value = o.ssoPassword;
     if (o.pcName && pcNameInput) pcNameInput.value = o.pcName;
+    if (waSyncPcLabel) waSyncPcLabel.textContent = o.pcName || 'PC 1';
     if (webhookUrlInput) webhookUrlInput.value = o.webhookUrl || DEFAULT_WEBHOOK_URL;
+    if (o.whatsappSyncUrl && whatsappSyncUrlInput) whatsappSyncUrlInput.value = o.whatsappSyncUrl;
+    if (o.enableWhatsAppRemote !== undefined && checkEnableWhatsAppRemote) checkEnableWhatsAppRemote.checked = o.enableWhatsAppRemote;
     if (o.enableAdaptiveThrottling !== undefined && checkAdaptiveThrottling) checkAdaptiveThrottling.checked = o.enableAdaptiveThrottling;
     if (o.enableWebhook !== undefined && checkEnableWebhook) checkEnableWebhook.checked = o.enableWebhook;
     if (o.autoSsoLogin !== undefined && checkAutoSsoLogin) checkAutoSsoLogin.checked = o.autoSsoLogin;

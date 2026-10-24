@@ -76,6 +76,8 @@ function formatEditUrl(urlStr, periodeId = '') {
 }
 
 const DEFAULT_WEBHOOK_URL = 'https://n8n7309.online/webhook/notif-anomali';
+const DEFAULT_WHATSAPP_SYNC_URL = 'https://n8n7309.online/webhook/tuntas-bot-sync';
+const WHATSAPP_SYNC_ALARM = 'tuntasWhatsAppSyncAlarm';
 
 let runnerState = {
   status: 'IDLE', // 'IDLE', 'RUNNING', 'PAUSED', 'STOPPED'
@@ -101,6 +103,8 @@ let runnerState = {
     ssoPassword: 'Mitra123',
     pcName: 'PC 1',
     enableWebhook: true,
+    enableWhatsAppRemote: true,
+    whatsappSyncUrl: DEFAULT_WHATSAPP_SYNC_URL,
     webhookUrl: DEFAULT_WEBHOOK_URL,
     apiDryRun: true
   }
@@ -323,6 +327,253 @@ function recordServerLatency(source, latencyMs, { isError = false, errorMsg = ''
 
 function recordServerSlowdownSignal(source, errorMsg = '') {
   recordServerLatency(source, 35000, { isError: true, errorMsg });
+}
+
+
+// ==================== TWO-WAY WHATSAPP REMOTE & DYNAMIC CLOUD QUEUE ====================
+/**
+ * WhatsApp Two-Way Remote & Dynamic Cloud Queue Engine:
+ * 1. Mengirim status berkala bot (heartbeat telemetry) ke n8n: PC, status (IDLE/RUNNING/PAUSED/STOPPED),
+ *    progress, nama usaha, sukses/gagal, dan latensi server FASIH.
+ * 2. Menerima instruksi perintah jarak jauh dari WhatsApp melalui respons n8n:
+ *    - PAUSE (#JEDA)
+ *    - RESUME (#LANJUT)
+ *    - STOP (#STOP)
+ *    - ADD_QUEUE (#TAMBAH [link]): Menambahkan link antrian baru secara dinamis ke Cloud Queue tanpa upload Excel ulang!
+ */
+let isSyncingWhatsApp = false;
+let whatsAppSyncIntervalTimer = null;
+let lastWhatsAppSyncResult = {
+  ok: true,
+  text: 'Siap Sinkron',
+  at: Date.now(),
+  pc: 'PC 1'
+};
+
+async function buildWhatsAppStatusPayload() {
+  const store = await chrome.storage.local.get(['fasihQueue', 'runnerState', 'runnerOptions']);
+  const queue = store.fasihQueue || [];
+  const state = store.runnerState || runnerState;
+  const opts = store.runnerOptions || runnerState.options || {};
+
+  const total = queue.length;
+  const done = queue.filter((i) => ['SUCCESS', 'SKIPPED', 'FAILED', 'INVALID', 'DRYRUN'].includes(i.status)).length;
+  const successCount = queue.filter((i) => i.status === 'SUCCESS').length;
+  const failedCount = queue.filter((i) => i.status === 'FAILED').length;
+  const pendingCount = queue.filter((i) => i.status === 'PENDING').length;
+
+  let currentUsaha = '-';
+  if (state.status === 'RUNNING' && queue[state.currentIndex]) {
+    currentUsaha = queue[state.currentIndex].nama_usaha || `Baris #${state.currentIndex + 1}`;
+  }
+
+  const serverHealth = typeof adaptiveThrottleState !== 'undefined'
+    ? adaptiveThrottleState.statusText
+    : 'Normal (1.0x)';
+
+  return {
+    pc: opts.pcName || 'PC 1',
+    status: state.status || 'IDLE',
+    progress: `${done} / ${total}`,
+    nama_usaha: currentUsaha,
+    successCount,
+    failedCount,
+    queueRemaining: pendingCount,
+    totalQueue: total,
+    currentIndex: state.currentIndex || 0,
+    serverHealth,
+    activeTabUrl: state.activeTargetUrl || '',
+    timestamp: Date.now(),
+    updatedAt: new Date().toLocaleTimeString('id-ID')
+  };
+}
+
+async function syncWithWhatsAppRemote({ force = false, test = false } = {}) {
+  const opts = runnerState.options || {};
+  if (!force && !test && opts.enableWhatsAppRemote === false) {
+    return { ok: false, skipped: true, reason: 'Fitur WhatsApp Remote dinonaktifkan di pengaturan' };
+  }
+
+  const syncUrl = String(opts.whatsappSyncUrl || DEFAULT_WHATSAPP_SYNC_URL).trim();
+  if (!syncUrl || !/^https?:\/\//i.test(syncUrl)) {
+    return { ok: false, error: 'URL Webhook Sync WhatsApp tidak valid' };
+  }
+
+  if (isSyncingWhatsApp && !force) return { ok: false, busy: true };
+  isSyncingWhatsApp = true;
+
+  try {
+    const payload = await buildWhatsAppStatusPayload();
+    if (test) {
+      payload.test = true;
+      payload.status = `${payload.status} (Uji Coba)`;
+      payload.nama_usaha = 'Uji Koneksi WhatsApp Remote';
+    }
+
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(() => controller.abort(), 12000);
+
+    const response = await fetch(syncUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutHandle);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const resJson = await response.json().catch(() => ({ status: 'OK' }));
+    lastWhatsAppSyncResult = {
+      ok: true,
+      text: 'Terhubung',
+      at: Date.now(),
+      pc: payload.pc
+    };
+
+    broadcastToPopup({
+      action: 'WHATSAPP_SYNC_UPDATED',
+      syncState: lastWhatsAppSyncResult
+    });
+
+    // Jalankan perintah remote jika ada pesan masuk dari WhatsApp
+    if (resJson && resJson.command && resJson.command.action && resJson.command.action !== 'NONE') {
+      await handleRemoteWhatsAppCommand(resJson.command);
+    }
+
+    return { ok: true, data: resJson };
+  } catch (err) {
+    const errMsg = err.name === 'AbortError' ? 'Timeout koneksi (>12 detik)' : (err.message || String(err));
+    lastWhatsAppSyncResult = {
+      ok: false,
+      text: `Gagal: ${errMsg}`,
+      at: Date.now()
+    };
+    broadcastToPopup({
+      action: 'WHATSAPP_SYNC_UPDATED',
+      syncState: lastWhatsAppSyncResult
+    });
+    return { ok: false, error: errMsg };
+  } finally {
+    isSyncingWhatsApp = false;
+  }
+}
+
+async function handleRemoteWhatsAppCommand(cmd) {
+  if (!cmd || !cmd.action || cmd.action === 'NONE') return;
+
+  const action = String(cmd.action).toUpperCase().trim();
+  console.log(`[TUNTAS Remote WA] Menjalankan perintah remote dari WhatsApp: ${action}`, cmd);
+
+  // Pastikan status runnerState sinkron dengan penyimpanan lokal (jika Service Worker baru aktif kembali)
+  const stored = (await chrome.storage.local.get(['runnerState'])).runnerState;
+  if (stored && stored.status) {
+    runnerState.status = stored.status;
+    if (stored.currentIndex !== undefined) runnerState.currentIndex = stored.currentIndex;
+    if (stored.activeTabId !== undefined) runnerState.activeTabId = stored.activeTabId;
+  }
+
+  if (action === 'PAUSE' || action === 'JEDA') {
+    if (runnerState.status === 'RUNNING') {
+      runnerState.status = 'PAUSED';
+      await chrome.storage.local.set({ runnerState });
+      broadcastToPopup({ action: 'QUEUE_PAUSED' });
+      broadcastToPopup({
+        action: 'UPDATE_STEP',
+        step: 'REMOTE_WA',
+        details: '⏸️ Otomasi dijeda jarak jauh via WhatsApp (#JEDA)'
+      });
+      setTimeout(() => syncWithWhatsAppRemote({ force: true }), 500);
+    }
+  } else if (action === 'RESUME' || action === 'LANJUT') {
+    if (runnerState.status === 'PAUSED' || runnerState.status === 'IDLE') {
+      runnerState.status = 'RUNNING';
+      await chrome.storage.local.set({ runnerState });
+      broadcastToPopup({ action: 'QUEUE_RESUMED' });
+      broadcastToPopup({
+        action: 'UPDATE_STEP',
+        step: 'REMOTE_WA',
+        details: '▶️ Otomasi dilanjutkan jarak jauh via WhatsApp (#LANJUT)'
+      });
+      startQueueRunner(null, { forceRestart: true });
+      setTimeout(() => syncWithWhatsAppRemote({ force: true }), 500);
+    }
+  } else if (action === 'STOP' || action === 'BERHENTI') {
+    runnerState.status = 'STOPPED';
+    const tabToClose = runnerState.activeTabId;
+    runnerState.activeTabId = null;
+    await chrome.storage.local.set({ runnerState });
+    if (tabToClose && runnerState.options.closeTabOnComplete !== false) {
+      await safeCloseTab(tabToClose);
+    }
+    broadcastToPopup({ action: 'QUEUE_STOPPED' });
+    broadcastToPopup({
+      action: 'UPDATE_STEP',
+      step: 'REMOTE_WA',
+      details: '⏹️ Otomasi dihentikan jarak jauh via WhatsApp (#STOP)'
+    });
+    setTimeout(() => syncWithWhatsAppRemote({ force: true }), 500);
+  } else if (action === 'ADD_QUEUE') {
+    const rawLink = String(cmd.link || '').trim();
+    if (rawLink && /^https?:\/\//i.test(rawLink)) {
+      const data = await chrome.storage.local.get(['fasihQueue', 'fasihAllRows']);
+      const queue = data.fasihQueue || [];
+      const allRows = data.fasihAllRows || [];
+
+      const usahaLabel = cmd.nama_usaha || `Antrian WhatsApp (#${queue.length + 1})`;
+      const newItem = {
+        link_fasih_sm: rawLink,
+        link: rawLink,
+        nama_usaha: usahaLabel,
+        mode: runnerState.options.mode || 'DC0',
+        commentText: runnerState.options.commentText || '#DC_00',
+        dc0Target: runnerState.options.dc0Target || 'nilai',
+        status: 'PENDING',
+        source: 'WHATSAPP_CLOUD_QUEUE',
+        addedAt: new Date().toISOString()
+      };
+
+      queue.push(newItem);
+      allRows.push(newItem);
+
+      await chrome.storage.local.set({ fasihQueue: queue, fasihAllRows: allRows });
+      broadcastToPopup({ action: 'QUEUE_UPDATED', queue });
+      broadcastToPopup({
+        action: 'UPDATE_STEP',
+        step: 'CLOUD_QUEUE',
+        details: `➕ Link baru ditambahkan ke antrian via WhatsApp: ${usahaLabel}`
+      });
+
+      // Jika bot sedang IDLE / selesai, jalankan antrian baru secara otomatis!
+      if (runnerState.status === 'IDLE') {
+        runnerState.status = 'RUNNING';
+        await chrome.storage.local.set({ runnerState });
+        startQueueRunner(queue.length - 1, { forceRestart: true });
+      }
+
+      setTimeout(() => syncWithWhatsAppRemote({ force: true }), 500);
+    }
+  }
+}
+
+function startWhatsAppSyncLoop() {
+  if (whatsAppSyncIntervalTimer) clearInterval(whatsAppSyncIntervalTimer);
+  whatsAppSyncIntervalTimer = setInterval(() => {
+    // Jalankan sync berkala
+    syncWithWhatsAppRemote().catch(() => {});
+  }, 8000); // interval 8 detik
+}
+
+async function setupWhatsAppSyncAlarm() {
+  if (!chrome.alarms) return;
+  try {
+    const a = await chrome.alarms.get(WHATSAPP_SYNC_ALARM);
+    if (!a) {
+      chrome.alarms.create(WHATSAPP_SYNC_ALARM, { delayInMinutes: 0.5, periodInMinutes: 1 });
+    }
+  } catch (_) {}
 }
 
 // Klasifikasi kategori error untuk laporan Webhook
@@ -1739,6 +1990,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
 
+  if (request.action === 'TEST_WHATSAPP_SYNC') {
+    (async () => {
+      if (request.whatsappSyncUrl) {
+        runnerState.options.whatsappSyncUrl = request.whatsappSyncUrl.trim();
+      }
+      const res = await syncWithWhatsAppRemote({ force: true, test: true });
+      sendResponse(res);
+    })();
+    return true;
+  }
+
+  if (request.action === 'GET_WHATSAPP_SYNC_STATE') {
+    sendResponse(lastWhatsAppSyncResult);
+    return false;
+  }
+
   if (request.action === 'START_QUEUE') {
     (async () => {
       const queue = await loadStateFromStorage();
@@ -2349,11 +2616,14 @@ async function keepAliveTick() {
 
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === KEEPALIVE_ALARM) keepAliveTick().catch(() => {});
+  if (a.name === WHATSAPP_SYNC_ALARM) syncWithWhatsAppRemote().catch(() => {});
 });
 chrome.runtime.onInstalled.addListener(() => {
   setupKeepAlive().catch(() => {});
 });
 chrome.runtime.onStartup.addListener(() => {
   setupKeepAlive().catch(() => {});
+  setupWhatsAppSyncAlarm().catch(() => {});
+  startWhatsAppSyncLoop();
 });
 setupKeepAlive().catch(() => {});
