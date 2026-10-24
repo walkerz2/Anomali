@@ -139,7 +139,7 @@ Untuk setiap baris pada file Excel:
 4. Klik tombol **Load unpacked** (Muat yang belum dibongkar) di pojok kiri atas.
 5. Pilih folder ekstensi ini:
    ```
-   D:\Anomali2
+   D:\capek\Anomali
    ```
 6. Ekstensi **TUNTAS SE2026** akan muncul dan siap digunakan.
 7. Sematkan (Pin) ikon ekstensi di toolbar Chrome agar mudah diakses.
@@ -150,7 +150,7 @@ Untuk setiap baris pada file Excel:
 
 1. **Akun FASIH, Auto Login SSO Eksternal & Penjaga Sesi**:
    - **Jaga Sesi FASIH Tetap Aktif**: Memastikan sesi Anda di FASIH-SM tidak kedaluwarsa saat browser didiamkan. Cukup biarkan minimal satu tab `fasih-sm.bps.go.id` terbuka di latar belakang. Ekstensi akan mengirimkan *heartbeat* ringan ke server tiap 4 menit dan mengunci tab agar tidak dibekukan (*autoDiscardable: false*).
-   - Ekstensi dilengkapi fitur **Auto Login SSO Eksternal**: jika sesi berakhir atau tab dialihkan ke halaman login SSO BPS, bot akan otomatis mengklik **"Lanjutkan SSO Eksternal"**, memasukkan email `Haerulhaeruddin003@gmail.com` dan kata sandi `Mitra123`, lalu mengirim formulir login dan kembali melanjutkan antrian.
+   - Ekstensi dilengkapi fitur **Auto Login SSO Eksternal**: jika sesi berakhir atau tab dialihkan ke halaman login SSO BPS, bot akan otomatis mengklik **"Lanjutkan SSO Eksternal"**, memasukkan email SSO dan kata sandi `XXXXXX`, lalu mengirim formulir login dan kembali melanjutkan antrian.
    - Anda juga dapat menyesuaikan email/kata sandi SSO kapan saja melalui menu Pengaturan pada popup.
 2. **Buka Ekstensi**:
    - Klik ikon **TUNTAS SE2026** di toolbar Chrome.
@@ -180,6 +180,11 @@ Untuk setiap baris pada file Excel:
     - **Auto Approve**: Centang untuk otomatis membuka halaman review dan mengklik tombol Approve setelah survei berhasil disubmit.
     - **Notifikasi Webhook (n8n / Telegram)**: Mengirim notifikasi otomatis secara selektif ke endpoint Webhook. Notifikasi **hanya** dikirim jika ekstensi macet/tidak jalan (server FASIH down, 500/502/503/504, timeout >35s/70s, SSO gagal, koneksi terputus, formulir tidak terbuka) atau kandas dalam proses pemberian remark (pertanyaan target tidak ditemukan, modal catatan gagal dibuka, unit usaha/KBLI tidak ditemukan, gagal revoke, atau galat formulir). Event wajar seperti remark sudah ada sebelumnya, link URL Excel tidak valid, atau kendala tombol Approve setelah dokumen sukses terkirim tidak akan memicu notifikasi.
     - **Circuit Breaker**: Pengaman otomatis yang akan menjeda antrian jika terjadi 3 kegagalan beruntun akibat server FASIH down atau timeout jaringan.
+    - **Notifikasi Status Otomatis ke WhatsApp (Selesai, Jeda, Stop)**: Mengirim pesan terformat otomatis ke WhatsApp melalui Webhook n8n saat:
+      - *Antrian Selesai Total (ALL COMPLETED)*: Menyertakan ringkasan total kuesioner yang berhasil diselesaikan, jumlah sukses, dan gagal.
+      - *Bot Dijeda (PAUSE)*: Menyertakan keterangan alasan jeda (dari pop-up ekstensi, remote WhatsApp `#JEDA`, atau trip *Circuit Breaker*).
+      - *Bot Dihentikan (STOP)*: Menyertakan status akhir dan titik baris antrian terakhir yang sempat diproses.
+      - *Standarisasi Waktu Indonesia Tengah (WITA / Asia/Makassar)*: Seluruh stempel waktu notifikasi, telemetri sinkronisasi, dan laporan obrolan dikunci ke zona WITA (UTC+8) agar selalu tepat sesuai jam lokal pengguna.
     - **WhatsApp Two-Way Remote & Dynamic Cloud Queue**: Memungkinkan Anda memantau seluruh PC yang sedang bekerja dan mengendalikannya secara nirkabel langsung dari obrolan WhatsApp melalui n8n:
       - **Monitoring Status Real-Time**: Perintah `#STATUS` untuk melihat progress semua PC (jumlah baris selesai, status server, nama usaha yang sedang diproses), atau `#STATUS PC 1` untuk memeriksa PC tertentu.
       - **Remote Control (Jeda, Lanjut, Stop)**: Perintah `#JEDA`, `#LANJUT`, atau `#STOP` untuk mengontrol semua PC sekaligus atau unit tertentu (misal `#JEDA PC 2`, `#LANJUT PC 1`).
@@ -202,7 +207,7 @@ Untuk setiap baris pada file Excel:
 ## 📁 Struktur Berkas
 
 ```
-Anomali2/
+Anomali/
 ├── manifest.json            # Konfigurasi Chrome Extension Manifest V3
 ├── icons/                   # Ikon ekstensi (16px, 48px, 128px)
 ├── lib/
