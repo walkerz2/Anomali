@@ -3062,8 +3062,7 @@ async function setupKeepAlive() {
     return;
   }
   if (chrome.alarms) {
-    const a = await chrome.alarms.get(KEEPALIVE_ALARM);
-    if (!a) chrome.alarms.create(KEEPALIVE_ALARM, { delayInMinutes: 1, periodInMinutes: 4 });
+    chrome.alarms.create(KEEPALIVE_ALARM, { delayInMinutes: 1, periodInMinutes: 4 });
   }
 }
 
@@ -3071,7 +3070,7 @@ async function keepAliveTick() {
   const { tuntasKeepAliveOn, runnerOptions } = await chrome.storage.local.get(['tuntasKeepAliveOn', 'runnerOptions']);
   if (tuntasKeepAliveOn === false) return;
   const periodeId = (runnerOptions && runnerOptions.periodeId) || KEEPALIVE_DEFAULT_SP;
-  const tabs = await chrome.tabs.query({ url: 'https://fasih-sm.bps.go.id/*' });
+  const tabs = await chrome.tabs.query({ url: ['https://fasih-sm.bps.go.id/*', '*://fasih-sm.bps.go.id/*'] });
   let res = null;
   for (const t of tabs) {
     chrome.tabs.update(t.id, { autoDiscardable: false }).catch(() => {});
@@ -3085,7 +3084,13 @@ async function keepAliveTick() {
     try {
       const r = await fetch(`https://fasih-sm.bps.go.id/app/api/survey/api/v1/users/myinfo?surveyPeriodId=${encodeURIComponent(periodeId)}`, { credentials: 'include', cache: 'no-store' });
       const ct = r.headers.get('content-type') || '';
-      res = r.ok && ct.includes('json') ? { ok: true } : { ok: false, msg: tabs.length ? 'tab FASIH belum siap' : 'buka satu tab FASIH agar sesi bisa dijaga' };
+      if (r.ok && ct.includes('json')) {
+        const j = await r.json().catch(() => null);
+        const u = j && ((j.data && j.data.username) || j.username);
+        res = { ok: true, user: u || '' };
+      } else {
+        res = { ok: false, msg: tabs.length ? 'tab FASIH belum siap' : 'buka satu tab FASIH agar sesi bisa dijaga' };
+      }
     } catch (e) {
       res = { ok: false, msg: 'buka satu tab FASIH agar sesi bisa dijaga' };
     }
