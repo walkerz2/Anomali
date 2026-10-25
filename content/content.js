@@ -375,7 +375,7 @@
     return info.includes('google');
   }
 
-  // 1. Mencari tombol / link "Lanjutkan dengan SSO Eksternal" secara presisi
+  // 1. Mencari tombol / link "Lanjutkan dengan SSO Eksternal" secara presisi & menyeluruh
   function findSsoEksternalButton() {
     const isElemVisible = (el) => {
       if (!el) return false;
@@ -383,27 +383,34 @@
       return r.width > 0 && r.height > 0;
     };
 
-    // 0. Cek atribut khusus & link SSO Eksternal / Mitra secara langsung
+    // 0. Cek atribut khusus ID, class, data-provider, atau href yang mengindikasikan SSO Eksternal / Mitra
     const directSelectors = [
       '#social-sso-eksternal',
       '#z-sso-eksternal',
       '#kc-social-sso-eksternal',
-      '[id*="sso-eksternal" i]',
-      '[id*="sso_eksternal" i]',
-      '[id*="sso-mitra" i]',
-      '[id*="sso_mitra" i]',
-      'a[href*="sso-eksternal" i]',
-      'a[href*="sso_eksternal" i]',
+      '[id*="eksternal" i]',
+      '[id*="external" i]',
+      '[id*="mitra" i]',
+      '[id*="sobat" i]',
+      'a[href*="eksternal" i]',
+      'a[href*="external" i]',
+      'a[href*="mitra" i]',
+      'a[href*="sobat" i]',
       'a[href*="kc_idp_hint=sso-eksternal" i]',
       'a[href*="kc_idp_hint=eksternal" i]',
       'a[href*="kc_idp_hint=mitra" i]',
-      'button[data-provider*="eksternal" i]',
-      'a[data-provider*="eksternal" i]',
-      'button[data-provider*="mitra" i]',
-      'a[data-provider*="mitra" i]',
+      '[data-provider*="eksternal" i]',
+      '[data-provider*="external" i]',
+      '[data-provider*="mitra" i]',
+      '[data-provider*="sobat" i]',
       '[class*="sso-eksternal" i]',
       '[class*="sso_eksternal" i]',
-      '[class*="sso-mitra" i]'
+      '[class*="sso-external" i]',
+      '[class*="sso_external" i]',
+      '[class*="sso-mitra" i]',
+      '[class*="sso_mitra" i]',
+      '[class*="btn-eksternal" i]',
+      '[class*="btn-mitra" i]'
     ];
     for (const sel of directSelectors) {
       try {
@@ -414,74 +421,69 @@
       } catch (_) {}
     }
 
-    const keywords = [
-      'lanjutkan dengan sso eksternal',
-      'lanjutkan sso eksternal',
-      'masuk dengan sso eksternal',
-      'masuk sso eksternal',
-      'login sso eksternal',
-      'sso eksternal',
-      'sso external',
-      'lanjutkan dengan sso external',
-      'lanjutkan sso external',
-      'masuk sso external',
-      'login sso external',
-      'lanjutkan dengan sso mitra',
-      'masuk dengan sso mitra',
-      'login dengan sso mitra',
-      'sso mitra statistik',
-      'sso mitra',
-      'login mitra',
-      'masuk mitra',
-      'mitra statistik',
-      'lanjutkan sebagai mitra',
-      'login sebagai mitra',
-      'masuk sebagai mitra',
-      'akun mitra'
-    ];
-
-    // 1. Prioritaskan elemen interaktif: button, a, [role="button"], div klik-able
-    const interactive = Array.from(document.querySelectorAll(
-      'button, a, [role="button"], div[tabindex], div.cursor-pointer, div[class*="cursor-pointer" i], div[class*="btn" i]'
+    // 1. Pindai semua elemen interaktif: button, a, [role="button"], input tombol, div/label klik-able
+    const interactiveElements = Array.from(document.querySelectorAll(
+      'button, a, [role="button"], input[type="button"], input[type="submit"], div[tabindex], div.cursor-pointer, div[class*="cursor-pointer" i], div[class*="btn" i], div[class*="card" i], label[class*="cursor-pointer" i]'
     )).filter(el => isElemVisible(el) && !isGoogleAuthElement(el));
 
-    const matches = [];
-    for (const el of interactive) {
+    const directMatches = [];
+    for (const el of interactiveElements) {
       const text = (el.innerText || el.textContent || el.value || el.getAttribute('aria-label') || el.getAttribute('title') || '').replace(/\s+/g, ' ').trim().toLowerCase();
       if (!text) continue;
-      for (const kw of keywords) {
-        if (text.includes(kw)) {
-          matches.push({ el, len: text.length });
-          break;
-        }
+
+      // Kriteria Kuat: mengandung kata 'eksternal', 'external', 'sobat', 'non-organik', atau 'mitra'
+      const hasEksternal = text.includes('eksternal') || text.includes('external');
+      const hasSobat = text.includes('sobat');
+      const hasNonOrganik = text.includes('non-organik') || text.includes('non organik');
+      const hasMitra = text.includes('mitra') && (text.includes('sso') || text.includes('login') || text.includes('masuk') || text.includes('lanjut') || text.includes('statistik') || text.includes('bps') || text.includes('akun') || text.includes('pengguna'));
+
+      if (hasEksternal || hasSobat || hasNonOrganik || hasMitra) {
+        // Beri skor prioritas: tag button/a murni lebih diutamakan daripada div container besar
+        const isNativeBtn = el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button';
+        const priorityScore = (isNativeBtn ? 0 : 50) + text.length;
+        directMatches.push({ el, score: priorityScore });
       }
     }
 
-    if (matches.length > 0) {
-      matches.sort((a, b) => a.len - b.len);
-      return matches[0].el;
+    if (directMatches.length > 0) {
+      directMatches.sort((a, b) => a.score - b.score);
+      return directMatches[0].el;
     }
 
-    // 2. Fallback: cari elemen teks terdalam yang memuat kata kunci lalu ambil container klik-able terdekatnya
-    const textElements = Array.from(document.querySelectorAll('span, p, div, b, strong, label'));
-    for (const el of textElements) {
+    // 2. Fallback: cari elemen teks terdalam (span, p, b, strong, div, label) yang memuat kata kunci
+    const allTextNodes = Array.from(document.querySelectorAll('span, p, b, strong, div, label, dt, h4, h5, h6'));
+    const fallbackMatches = [];
+    for (const el of allTextNodes) {
       if (!isElemVisible(el) || isGoogleAuthElement(el)) continue;
       const text = (el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
-      if (!text) continue;
-      for (const kw of keywords) {
-        if (text.includes(kw)) {
-          const parentBtn = el.closest('button, a, [role="button"], div[tabindex], div.cursor-pointer, div[class*="cursor-pointer" i], div[class*="btn" i]');
-          if (parentBtn && isElemVisible(parentBtn) && !isGoogleAuthElement(parentBtn)) {
-            return parentBtn;
-          }
-          const p = el.parentElement;
-          if (p && isElemVisible(p) && !isGoogleAuthElement(p)) {
-            return p;
-          }
-          return el;
+      if (!text || text.length > 120) continue;
+
+      const hasEksternal = text.includes('eksternal') || text.includes('external');
+      const hasSobat = text.includes('sobat');
+      const hasNonOrganik = text.includes('non-organik') || text.includes('non organik');
+      const hasMitra = text.includes('mitra') && (text.includes('sso') || text.includes('login') || text.includes('masuk') || text.includes('lanjut') || text.includes('statistik') || text.includes('bps'));
+
+      if (hasEksternal || hasSobat || hasNonOrganik || hasMitra) {
+        const clickableParent = el.closest('button, a, [role="button"], div[tabindex], div.cursor-pointer, div[class*="cursor-pointer" i], div[class*="btn" i], div[class*="card" i], form');
+        const targetEl = clickableParent || el.parentElement || el;
+        if (isElemVisible(targetEl) && !isGoogleAuthElement(targetEl)) {
+          fallbackMatches.push({ el: targetEl, len: text.length });
         }
       }
     }
+
+    if (fallbackMatches.length > 0) {
+      fallbackMatches.sort((a, b) => a.len - b.len);
+      return fallbackMatches[0].el;
+    }
+
+    // 3. Fallback Khusus: Cek apakah ada radio/select SSO Eksternal
+    try {
+      const radio = document.querySelector('input[type="radio"][value*="eksternal" i], input[type="radio"][value*="external" i], input[type="radio"][value*="mitra" i], input[type="radio"][value*="sobat" i]');
+      if (radio && isElemVisible(radio)) {
+        return radio;
+      }
+    } catch (_) {}
 
     return null;
   }
@@ -757,23 +759,80 @@
 
   // Helper klik ekstra pasti untuk tombol SSO Eksternal
   async function clickSsoEksternalElement(btn) {
-    if (!btn) return;
-    const target = btn.closest('button, a, [role="button"]') || btn;
-    await humanClick(target);
-    try {
-      const inner = target.querySelector && target.querySelector('button, a');
-      if (inner && inner !== target) inner.click();
-    } catch (e) {}
+    if (!btn) return false;
 
-    // Fallback: jika elemen bertag <a> dan memiliki href namun belum beralih halaman dalam 1.2 detik
-    if (target.tagName === 'A' && target.href && !target.href.startsWith('javascript:')) {
+    // 1. Tangani jika ada radio button / select SSO Eksternal yang perlu dipilih lebih dulu
+    try {
+      const radio = document.querySelector('input[type="radio"][value*="eksternal" i], input[type="radio"][value*="external" i], input[type="radio"][value*="mitra" i], input[type="radio"][value*="sobat" i]');
+      if (radio && !radio.checked) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change', { bubbles: true }));
+        radio.click();
+      }
+      const select = document.querySelector('select');
+      if (select) {
+        const opt = Array.from(select.options).find(o => /eksternal|external|mitra|sobat/i.test(o.value || o.text || ''));
+        if (opt && select.value !== opt.value) {
+          select.value = opt.value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+    } catch (_) {}
+
+    // 2. Tentukan target klik
+    const target = btn.closest('button, a, [role="button"], div[tabindex], div.cursor-pointer, div[class*="cursor-pointer" i], div[class*="btn" i], div[class*="card" i]') || btn;
+
+    // 3. Cari anchor <a> jika ada (pada target, parent, atau anak)
+    const anchor = target.tagName === 'A' ? target : (target.closest('a') || (target.querySelector && target.querySelector('a')));
+
+    console.log('[TUNTAS SSO] Mengklik tombol SSO Eksternal:', target);
+
+    // 4. Lakukan klik manusiawi
+    await humanClick(target);
+
+    // 5. Tambahan: dispatch klik langsung pada target, inner button/a, dan parent
+    try {
+      target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      target.click();
+    } catch (_) {}
+
+    try {
+      const inner = target.querySelector && target.querySelector('button, a, [role="button"]');
+      if (inner && inner !== target) {
+        inner.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        inner.click();
+      }
+    } catch (_) {}
+
+    if (target.parentElement && target.parentElement !== document.body) {
+      try {
+        target.parentElement.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      } catch (_) {}
+    }
+
+    // 6. Jika ada tombol "Go!" / "Lanjut" (jika mode dropdown/radio)
+    try {
+      const goBtn = Array.from(document.querySelectorAll('button, input[type="submit"], input[type="button"], a')).find(b => {
+        const t = (b.innerText || b.textContent || b.value || '').trim().toLowerCase();
+        return t === 'go!' || t === 'go' || t === 'lanjut' || t === 'lanjutkan';
+      });
+      if (goBtn && goBtn !== target) {
+        await humanClick(goBtn);
+      }
+    } catch (_) {}
+
+    // 7. Fallback navigasi langsung via href jika berupa link <a> dan halaman belum berpindah dalam 800ms
+    if (anchor && anchor.href && !anchor.href.startsWith('javascript:')) {
       setTimeout(() => {
         const u = window.location.href.toLowerCase();
-        if (u.includes('/login') || u.includes('/auth') || u.includes('fasih-sm.bps.go.id')) {
-          try { window.location.assign(target.href); } catch (_) {}
+        if (!u.includes('sso.bps.go.id') && (u.includes('fasih-sm.bps.go.id') || u.includes('/login') || u.includes('/app'))) {
+          console.log('[TUNTAS SSO] Mengalihkan langsung ke URL anchor:', anchor.href);
+          try { window.location.assign(anchor.href); } catch (_) {}
         }
-      }, 1200);
+      }, 800);
     }
+
+    return true;
   }
 
   // Alur Eksekusi Login SSO Eksternal
@@ -5123,7 +5182,17 @@
       const opts = data?.runnerOptions || data?.fasihOptions || {};
       if (opts.autoSsoLogin === false) return;
 
-      const isSso = isLoginPage() || findSsoEksternalButton() || findSsoPasswordInput() || findSessionExpiredElement();
+      // Tunggu hingga tombol SSO Eksternal atau input password muncul (polling sampai 8 detik jika halaman login)
+      let foundElement = findSsoPasswordInput() || findSsoEksternalButton() || findSessionExpiredElement();
+      if (!foundElement && isLoginPage()) {
+        for (let i = 0; i < 16; i++) {
+          await sleep(500);
+          foundElement = findSsoPasswordInput() || findSsoEksternalButton() || findSessionExpiredElement();
+          if (foundElement) break;
+        }
+      }
+
+      const isSso = Boolean(foundElement) || isLoginPage();
       if (!isSso) {
         // Jika sudah di dalam FASIH dan tidak diminta login, bersihkan counter percobaan
         try {
@@ -5143,8 +5212,8 @@
       const now = Date.now();
       const lastAttempt = parseInt(sessionStorage.getItem('tuntas_sso_last_time') || '0', 10);
       const attemptCount = parseInt(sessionStorage.getItem('tuntas_sso_attempt_count') || '0', 10);
-      if (now - lastAttempt < 60000 && attemptCount >= 3) {
-        console.warn('[TUNTAS SSO] Melebihi batas percobaan auto-login (3 kali dalam 1 menit). Periksa username/password di ekstensi.');
+      if (now - lastAttempt < 60000 && attemptCount >= 4) {
+        console.warn('[TUNTAS SSO] Melebihi batas percobaan auto-login (4 kali dalam 1 menit). Periksa username/password di ekstensi.');
         return;
       }
 
@@ -5152,7 +5221,6 @@
       sessionStorage.setItem('tuntas_sso_attempt_count', String((now - lastAttempt < 60000) ? attemptCount + 1 : 1));
 
       console.log('[TUNTAS SSO] Mendeteksi halaman Login / SSO. Memulai auto-login SSO...');
-      await sleep(600);
       await handleSsoLogin(opts);
     } catch (e) {
       console.warn('[TUNTAS SSO] Gagal eksekusi auto-login SSO:', e);
@@ -5162,7 +5230,7 @@
   // Jalankan segera saat content script dimuat (document_idle)
   setTimeout(() => {
     autoInitSsoOnPageLoad();
-  }, 500);
+  }, 400);
 
   // Pantau perubahan DOM (misal modal sesi berakhir muncul secara dinamis atau SPA baru selesai render tombol)
   try {
@@ -5173,7 +5241,7 @@
         if (isLoginPage() || findSsoEksternalButton() || findSessionExpiredElement() || findSsoPasswordInput()) {
           autoInitSsoOnPageLoad();
         }
-      }, 750);
+      }, 500);
     });
     if (document.body || document.documentElement) {
       ssoObserver.observe(document.body || document.documentElement, { childList: true, subtree: true });
