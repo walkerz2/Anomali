@@ -362,31 +362,98 @@ async function buildWhatsAppStatusPayload() {
   const done = queue.filter((i) => ['SUCCESS', 'SKIPPED', 'FAILED', 'INVALID', 'DRYRUN'].includes(i.status)).length;
   const successCount = queue.filter((i) => i.status === 'SUCCESS').length;
   const failedCount = queue.filter((i) => i.status === 'FAILED').length;
+  const skippedCount = queue.filter((i) => i.status === 'SKIPPED').length;
   const pendingCount = queue.filter((i) => i.status === 'PENDING').length;
 
+  const curIndex = (state && state.currentIndex !== undefined && state.currentIndex !== null) ? state.currentIndex : null;
+  const curItem = (curIndex !== null && queue[curIndex]) ? queue[curIndex] : null;
   let currentUsaha = '-';
-  if (state.status === 'RUNNING' && queue[state.currentIndex]) {
-    currentUsaha = queue[state.currentIndex].nama_usaha || `Baris #${state.currentIndex + 1}`;
+  let curRowNum = '-';
+  let currentLink = '-';
+
+  if (curItem) {
+    currentUsaha = curItem.nama_usaha || `Baris #${curIndex + 1}`;
+    curRowNum = curItem.excelRowNum || (curIndex + 1);
+    currentLink = curItem.link_fasih_sm || curItem.link || '-';
   }
 
   const serverHealth = typeof adaptiveThrottleState !== 'undefined'
     ? adaptiveThrottleState.statusText
     : 'Normal (1.0x)';
 
+  const mode = opts.mode || 'DC0';
+  const modeLabel = mode === 'API' ? 'Ubah Variabel (API)' : (mode === 'NTB' ? 'Validasi NTB' : (mode === 'DC1' ? '#DC_01' : '#DC_00'));
+  const pct = total > 0 ? ((done / total) * 100).toFixed(1) : '0';
+
+  const now = new Date();
+  const waktuLokal = now.toLocaleString('id-ID', { timeZone: 'Asia/Makassar', hour12: false }) + ' WITA';
+
+  let statusIcon = '⚪';
+  let statusLabel = 'Siaga (IDLE)';
+  if (state.status === 'RUNNING') {
+    statusIcon = '▶️';
+    statusLabel = 'Sedang Berjalan (RUNNING)';
+  } else if (state.status === 'PAUSED') {
+    statusIcon = '⏸️';
+    statusLabel = 'Dijeda (PAUSED)';
+  } else if (state.status === 'STOPPED') {
+    statusIcon = '⏹️';
+    statusLabel = 'Dihentikan (STOPPED)';
+  } else if (total > 0 && done === total) {
+    statusIcon = '🎉';
+    statusLabel = 'Selesai (COMPLETED)';
+  }
+
+  const pcName = String(opts.pcName || 'PC 1').trim() || 'PC 1';
+
+  const lines = [
+    `📊 [MONITORING PERANGKAT TUNTAS | ${pcName}]`,
+    `🖥️ PC: ${pcName}`,
+    `⚡ Status: ${statusIcon} *${statusLabel}*`,
+    `📋 Menu: ${modeLabel}`,
+    `📈 Progres: *${done} / ${total}* (${pct}%)`,
+    `✅ Sukses: ${successCount} | ❌ Gagal: ${failedCount}${skippedCount ? ` | ⏩ Dilewati: ${skippedCount}` : ''}`,
+    `⏳ Sisa Antrian: ${pendingCount}`,
+    curItem ? `🏢 Usaha Aktif: ${currentUsaha}${curRowNum !== '-' ? ` (Baris #${curRowNum})` : ''}` : null,
+    `🌐 Respon Server: ${serverHealth}`,
+    `⏰ Waktu: ${waktuLokal}`
+  ].filter(Boolean);
+
+  const formattedStatusMessage = lines.join('\n');
+
   return {
-    pc: opts.pcName || 'PC 1',
+    app: 'TUNTAS SE2026',
+    pc: pcName,
+    pc_name: pcName,
     status: state.status || 'IDLE',
+    statusLabel,
+    mode,
+    modeLabel,
     progress: `${done} / ${total}`,
+    progres: `${done} / ${total}`,
+    persen: `${pct}%`,
     nama_usaha: currentUsaha,
+    no_baris: curRowNum,
+    link_fasih_sm: currentLink,
     successCount,
     failedCount,
+    skippedCount,
+    sukses: successCount,
+    gagal: failedCount,
+    dilewati: skippedCount,
     queueRemaining: pendingCount,
+    sisa_antrian: pendingCount,
     totalQueue: total,
-    currentIndex: state.currentIndex || 0,
+    total_antrian: total,
+    currentIndex: curIndex || 0,
     serverHealth,
-    activeTabUrl: state.activeTargetUrl || '',
+    server_health: serverHealth,
+    activeTabUrl: state.activeTargetUrl || (currentLink !== '-' ? currentLink : ''),
     timestamp: Date.now(),
-    updatedAt: new Date().toLocaleTimeString('id-ID', { timeZone: 'Asia/Makassar', hour12: false }) + ' WITA'
+    waktu_lokal: waktuLokal,
+    updatedAt: waktuLokal,
+    message: formattedStatusMessage,
+    text: formattedStatusMessage
   };
 }
 
@@ -410,6 +477,8 @@ async function syncWithWhatsAppRemote({ force = false, test = false } = {}) {
       payload.test = true;
       payload.status = `${payload.status} (Uji Coba)`;
       payload.nama_usaha = 'Uji Koneksi WhatsApp Remote';
+      payload.message = `🧪 [UJI KONEKSI WHATSAPP SYNC | ${payload.pc}]\n${payload.message}`;
+      payload.text = payload.message;
     }
 
     const controller = new AbortController();
@@ -761,45 +830,36 @@ async function handleRemoteWhatsAppCommand(cmd) {
     if (stored.activeTabId !== undefined) runnerState.activeTabId = stored.activeTabId;
   }
 
-  if (action === 'PAUSE' || action === 'JEDA') {
-    if (runnerState.status === 'RUNNING') {
-      runnerState.status = 'PAUSED';
-      await chrome.storage.local.set({ runnerState });
-      broadcastToPopup({ action: 'QUEUE_PAUSED' });
-      broadcastToPopup({
-        action: 'UPDATE_STEP',
-        step: 'REMOTE_WA',
-        details: '⏸️ Otomasi dijeda jarak jauh via WhatsApp (#JEDA)'
-      });
-      setTimeout(() => syncWithWhatsAppRemote({ force: true }), 500);
-    }
+  if (action === 'STATUS') {
+    broadcastToPopup({
+      action: 'UPDATE_STEP',
+      step: 'REMOTE_WA',
+      details: '📊 Permintaan status diterima via WhatsApp (#STATUS)'
+    });
+    setTimeout(() => syncWithWhatsAppRemote({ force: true }), 100);
+  } else if (action === 'PAUSE' || action === 'JEDA') {
+    broadcastToPopup({
+      action: 'UPDATE_STEP',
+      step: 'REMOTE_WA',
+      details: '⏸️ Otomasi dijeda jarak jauh via WhatsApp (#JEDA)'
+    });
+    await pauseQueueExecution('Dijeda jarak jauh via WhatsApp (#JEDA)');
+    setTimeout(() => syncWithWhatsAppRemote({ force: true }), 500);
   } else if (action === 'RESUME' || action === 'LANJUT') {
-    if (runnerState.status === 'PAUSED' || runnerState.status === 'IDLE') {
-      runnerState.status = 'RUNNING';
-      await chrome.storage.local.set({ runnerState });
-      broadcastToPopup({ action: 'QUEUE_RESUMED' });
-      broadcastToPopup({
-        action: 'UPDATE_STEP',
-        step: 'REMOTE_WA',
-        details: '▶️ Otomasi dilanjutkan jarak jauh via WhatsApp (#LANJUT)'
-      });
-      startQueueRunner(null, { forceRestart: true });
-      setTimeout(() => syncWithWhatsAppRemote({ force: true }), 500);
-    }
+    broadcastToPopup({
+      action: 'UPDATE_STEP',
+      step: 'REMOTE_WA',
+      details: '▶️ Otomasi dilanjutkan jarak jauh via WhatsApp (#LANJUT)'
+    });
+    await resumeQueueExecution();
+    setTimeout(() => syncWithWhatsAppRemote({ force: true }), 500);
   } else if (action === 'STOP' || action === 'BERHENTI') {
-    runnerState.status = 'STOPPED';
-    const tabToClose = runnerState.activeTabId;
-    runnerState.activeTabId = null;
-    await chrome.storage.local.set({ runnerState });
-    if (tabToClose && runnerState.options.closeTabOnComplete !== false) {
-      await safeCloseTab(tabToClose);
-    }
-    broadcastToPopup({ action: 'QUEUE_STOPPED' });
     broadcastToPopup({
       action: 'UPDATE_STEP',
       step: 'REMOTE_WA',
       details: '⏹️ Otomasi dihentikan jarak jauh via WhatsApp (#STOP)'
     });
+    await stopQueueExecution('Dihentikan jarak jauh via WhatsApp (#STOP)');
     setTimeout(() => syncWithWhatsAppRemote({ force: true }), 500);
   } else if (action === 'ADD_QUEUE') {
     const rawLink = String(cmd.link || '').trim();
@@ -2970,6 +3030,7 @@ chrome.alarms.onAlarm.addListener((a) => {
 });
 chrome.runtime.onInstalled.addListener(() => {
   setupKeepAlive().catch(() => {});
+  setupWhatsAppSyncAlarm().catch(() => {});
 });
 chrome.runtime.onStartup.addListener(() => {
   setupKeepAlive().catch(() => {});
@@ -2977,3 +3038,5 @@ chrome.runtime.onStartup.addListener(() => {
   startWhatsAppSyncLoop();
 });
 setupKeepAlive().catch(() => {});
+setupWhatsAppSyncAlarm().catch(() => {});
+startWhatsAppSyncLoop();
