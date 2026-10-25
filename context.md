@@ -1,7 +1,7 @@
 # CONTEXT.MD — TUNTAS SE2026 (Tracking dan Tindak Lanjut Anomali Sensus)
 
 > **Dokumen Konteks Proyek & Panduan Teknis Komprehensif**  
-> Terakhir diperbarui: 25 Oktober 2026  
+> Terakhir diperbarui: 25 Oktober 2026, 19:30 WITA (Asia/Makassar / UTC+8)  
 > Zona Waktu Sistem: Waktu Indonesia Tengah (WITA / Asia/Makassar / UTC+8)
 
 ---
@@ -45,10 +45,10 @@ flowchart TB
     subgraph SW ["Background Service Worker (background.js)"]
         E[Queue Runner & State Machine]
         F[Adaptive Throttling Engine]
-        G[Keep-Alive & Session Guard]
+        G[Keep-Alive & Session Guard (chrome.alarms 4m)]
         H[Circuit Breaker]
-        I[Auto SSO Login Handler]
-        J[WhatsApp Two-Way Sync & n8n Webhook]
+        I[Auto SSO Login Handler (Running-Guarded)]
+        J[WhatsApp Two-Way Sync & Dynamic n8n Webhook]
     end
 
     subgraph CS ["Content Scripts (Injected into fasih-sm.bps.go.id)"]
@@ -80,6 +80,7 @@ flowchart TB
 | **FASIH API Client** | `content/fasih_api.js` | Manipulasi FormGear internal, enkripsi/kompresi ZIP-CRC32-MD5, backup/restore JSON variabel |
 | **Queue & Resiliensi** | `background/background.js` | Service worker MV3 keep-alive, antrian kerja, pemantauan latensi, jeda dinamis, circuit breaker |
 | **Telemetri & Remote** | n8n Webhook & WhatsApp Bot | Notifikasi real-time ke grup WA, sinkronisasi status dua arah, remote control (`#STATUS`, `#JEDA`, `#LANJUT`, `#STOP`, `#TAMBAH`) |
+| **QA & Verification** | `scripts/verify-all.js` | Pengujian otomatis validitas sintaks AST, integritas manifest, dan aksi pesan kritis |
 
 ---
 
@@ -90,6 +91,7 @@ Anomali/
 ├── manifest.json            # Manifest V3: Permissions, Host Permissions, Content Scripts, Worker
 ├── README.md                # Panduan operasional bagi pengguna dan dokumentasi fitur
 ├── context.md               # [File Ini] Dokumentasi konteks arsitektur & referensi teknis pengembang
+├── AGENTS.md                # Aturan pengembangan agen: Git safe workflow, Zero Regression, Doc-Sync
 ├── THIRD_PARTY_LICENSES.txt # Lisensi dependensi pihak ketiga (SheetJS, Fasih Batch Extension MIT)
 ├── logo.jpeg                # Logo visual identitas ekstensi
 ├── icons/                   # Aset icon ekstensi (16, 32, 48, 128 px)
@@ -109,6 +111,12 @@ Anomali/
 ├── content/                 # Script injeksi ke halaman FASIH BPS
 │   ├── content.js           # Robot DOM: alur klik form kuesioner, catatan, toggle, submit, approve
 │   └── fasih_api.js         # API Engine: modifikasi data kuesioner langsung via endpoint FormGear
+├── scripts/                 # Skrip verifikasi dan automasi pengujian
+│   └── verify-all.js        # Pengujian mandiri AST syntax, manifest, dan message action integrity
+├── .agents/skills/          # Modul skill kecerdasan agen proyek
+│   ├── git-safe-workflow/   # Pedoman proteksi git tanpa push langsung ke main
+│   ├── qa-regression-guard/ # Pedoman pengujian kualitas dan jaminan zero-regression
+│   └── doc-sync/            # Pedoman sinkronisasi disiplin README.md & context.md
 └── template/                # Format template Excel standar siap pakai
     ├── Template_TUNTAS_DC0.xlsx          # Template Mode #DC_00 (link_fasih_sm)
     ├── Template_TUNTAS_DC1_KBLI.xlsx     # Template Mode #DC_01 (link, kbli_awal, kbli_tujuan)
@@ -149,72 +157,33 @@ Ekstensi menyediakan 4 mode kerja terintegrasi yang dapat dipilih dari tab atas 
   6. Mengaktifkan toggle konfirmasi anomali, submit formulir, dan melakukan auto approve.
 
 ### 4.3 Mode 3: API · Ubah Variabel Massal
-- **Tujuan**: Mengubah variabel kuesioner apa pun (selain KBLI) secara massal langsung melalui API internal FASIH FormGear tanpa klik manual form.
-- **Workflow Interaktif**:
-  1. *Pilih Variabel*: Pengguna membuka 1 kuesioner di tab aktif $\rightarrow$ klik "Pilih Variabel" di popup $\rightarrow$ ekstensi membaca struktur kuesioner $\rightarrow$ pengguna mencentang variabel yang ingin diubah.
-  2. *Unduh Template*: Sistem men-generate file Excel berisi kolom `link_fasih_sm`, `nama_usaha`, `kode_catatan`, serta kolom variabel terpilih (misal `r26a`, `r26b`, `r27a`). Sheet kedua memuat kamus kode pilihan nilai.
-  3. *Eksekusi Aman*:
-     - **Mode Dry Run (Uji Coba)**: Default aktif. Memeriksa kecocokan dataKey tanpa menyimpan ke database.
-     - **Auto Backup**: Menyimpan snapshot JSON kuesioner sebelum ditimpa (disediakan tombol Restore).
-     - **Form Verification & Submission**: Setelah API menulis data, bot membuka halaman formulir secara visual untuk memastikan validasi FormGear lulus, lalu melakukan Submit dan Approve (dibatalkan otomatis jika muncul notifikasi GALAT merah).
+- **Tujuan**: Memodifikasi nilai rincian variabel kuesioner secara bebas langsung ke backend FASIH FormGear via REST API internal tanpa perlu mengklik field satu per satu di browser.
+- **Fitur Utama**:
+  1. **Visual Variable Picker**: Memilih variabel dari kuesioner aktif dan menghasilkan template Excel kustom otomatis.
+  2. **Auto Backup JSON**: Menyimpan salinan variabel asli sebelum diubah untuk keamanan data sensus.
+  3. **Visual Form Verification & Submit**: Membuka kembali formulir di browser untuk memvalidasi tidak ada status galat (Clean) sebelum submit dan approve.
+  4. **Dry Run Mode**: Simulasi perubahan nilai tanpa menyimpan ke server.
 
 ### 4.4 Mode 4: NTB · Validasi & Imputasi (Flag 3)
-- **Tujuan**: Menyelesaikan anomali Rasio Nilai Tambah Bruto (NTB Flag 3) dari file mentah PANTAU BPS secara instan, akurat, dan 100% *client-side*.
-- **Workflow**:
-  1. Pengguna mengunggah file ekspor mentah PANTAU BPS (`.xlsx` atau `.xls`).
-  2. Engine `ntb_validator.js` melakukan parsing dan komputasi otomatis (lihat Bagian 5).
-  3. Mengklasifikasikan tiap baris menjadi **#0 (Sesuai Batas Wajar)** atau **#1 (Anomali / Perlu Imputasi)**.
-  4. Mengunduh hasil komprehensif dalam **File Excel 3-Sheet**:
-     - *Sheet 1 (Master Validasi NTB)*: Seluruh kolom audit, diagnosa, dan rasio riil.
-     - *Sheet 2 (Panduan Imputasi #1)*: Rekomendasi nominal dan instruksi naratif.
-     - *Sheet 3 (Template API Siap Pakai)*: Format siap pakai untuk eksekusi API.
-  5. **Dukungan Sheet 3 Kustom**: Pengguna dapat memodifikasi Sheet 3 sendiri (mengganti variabel imputasi dengan multi-variabel bebas seperti `r26a`, `r27b`, dsb.) dan mengunggahnya kembali.
-  6. **Konversi ke Antrian Bot Langsung**: Pengguna dapat memfilter `Semua`, `Hanya #1`, atau `Hanya #0` untuk langsung dimuat ke antrian eksekusi bot FASIH tanpa perantara file lagi.
+- **Tujuan**: Menganalisis anomali Rasio Nilai Tambah Bruto (NTB Flag 3) dari file mentah PANTAU BPS 100% di browser (*client-side*).
+- **Proses Inti**:
+  1. **Kalkulasi Rasio Riil**:
+     $$\text{Total Pendapatan} = \text{Pendapatan Barang \& Jasa} + \text{Pendapatan Lainnya}$$
+     $$\text{NTB Riil} = \text{Total Pendapatan} - \text{Total Pengeluaran}$$
+     $$\text{Rasio NTB (\%)} = \left(\frac{\text{NTB Riil}}{\text{Total Pendapatan}}\right) \times 100$$
+  2. **Klasifikasi Batas Wajar (Sektor A–V)**:
+     - **Status #0 (Wajar)**: Rasio riil berada dalam rentang toleransi sektor BPS $\rightarrow$ dieksekusi via catatan konfirmasi #0 pada 27.a.
+     - **Status #1 (Anomali)**: Rasio riil di luar batas wajar $\rightarrow$ dihitung nilai imputasi target median dan dialirkan ke Mode API.
+  3. **Ekspor Excel 3-Sheet**:
+     - *Sheet 1*: Master Validasi NTB lengkap.
+     - *Sheet 2*: Panduan verifikator lapangan.
+     - *Sheet 3*: Template API siap pakai (mendukung pengeditan mandiri & multi-variabel kustom).
 
 ---
 
-## 5. 🧠 Logika Matematika & Algoritma Khusus
+## 5. ⚡ Mesin Performa, Throttling & Penyesuaian Beban
 
-### 5.1 Rumus Perhitungan Rasio NTB Riil
-Sistem PANTAU BPS sering kali menampilkan anomali atau persen yang terdistorsi akibat formula agregasi sistem yang tidak konsisten. TUNTAS menghitung ulang secara independen:
-
-$$\text{Total Pendapatan} = \text{Pendapatan B\&J} + \text{Pendapatan Lainnya}$$
-
-$$\text{NTB Riil} = \text{Total Pendapatan} - \text{Total Pengeluaran}$$
-
-$$\text{Rasio NTB (\%)} = \left( \frac{\text{NTB Riil}}{\text{Total Pendapatan}} \right) \times 100$$
-
-### 5.2 Klasifikasi 22 Sektor KBLI (A–V) & Batas Rasio Wajar
-`ntb_validator.js` memetakan nama usaha menggunakan pencocokan kata kunci kontekstual (regex/substring) ke kategori sektor ekonomi BPS:
-
-| Kode | Kategori Sektor Ekonomi | Rentang Wajar (%) | Target Median (%) | Variabel Imputasi Default |
-|:---:|---|:---:|:---:|:---:|
-| **A** | Pertanian, Kehutanan, Perikanan | 19.0 – 30.0 | 25.0 | `r26b` (Bahan Baku / Bibit / Pakan) |
-| **B** | Pertambangan & Penggalian | 28.0 – 81.0 | 50.0 | `r26d` (Biaya Operasional) |
-| **C** | Industri Pengolahan | 33.0 – 67.0 | 45.0 | `r26b` (Bahan Baku / Produksi) |
-| **D** | Pengadaan Listrik, Gas, Uap | 13.0 – 68.0 | 35.0 | `r26d` (Biaya Operasional) |
-| **E** | Air, Sampah, Limbah & Remediasi | 29.0 – 47.0 | 38.0 | `r26d` (Biaya Operasional) |
-| **F** | Konstruksi | 34.0 – 44.0 | 39.0 | `r26d` (Biaya Operasional) |
-| **G** | Perdagangan Besar/Eceran; Reparasi Ranmor | 7.0 – 60.0 | 30.0 | `r26c` (Pembelian Barang Dagangan) |
-| **H** | Transportasi dan Pergudangan | 7.0 – 60.0 | 35.0 | `r26d` (Operasional - BBM & Servis) |
-| **I** | Penyediaan Akomodasi & Makan Minum | 7.0 – 60.0 | 35.0 | `r26b` (Bahan Makanan / Minuman) |
-| **J** | Informasi & Komunikasi (Media, Konten) | 7.0 – 60.0 | 35.0 | `r26d` (Biaya Operasional) |
-| **K** | Telekomunikasi, Pulsa/Voucher, Jasa IT | 7.0 – 60.0 | 30.0 | `r26c` (Pembelian Pulsa / Voucher) |
-| **L–V**| Jasa Keuangan, Real Estat, Pendidikan, Jasa Lainnya | 15.0 – 100.0 | 25.0 – 30.0 | `r26d` (Biaya Operasional) |
-
-### 5.3 Algoritma Imputasi Nilai Baru (Status #1)
-Jika rasio berada di luar batas wajar ($< \text{min}$ atau $> \text{max}$):
-1. **Kasus Pendapatan = 0 / Kosong**:
-   $$\text{Pendapatan Baru (R27a)} = \max(\text{Total Aset} \times 0.5, \; 3.000.000)$$
-   $$\text{Pengeluaran Target Baru} = \text{Round}_{10.000}\left(\text{Pendapatan Baru} \times \left(1 - \frac{\text{Target Median}}{100}\right)\right)$$
-2. **Kasus Rasio Terlalu Tinggi ($> \text{Target}$)**:
-   Pendapatan dipertahankan, biaya pengeluaran disesuaikan ke atas:
-   $$\text{Pengeluaran Baru} = \text{Round}_{10.000}\left(\text{Total Pendapatan} \times \left(1 - \frac{\text{Target Median}}{100}\right)\right)$$
-   Nilai baru diimputasikan ke variabel biaya target sektor terkait (`r26c`, `r26b`, atau `r26d`).
-3. **Kasus Rasio Terlalu Rendah / Negatif / Impas ($0\%$)**:
-   Jika terdapat pendapatan sampingan/lainnya, pendapatan utama disesuaikan atau pengeluaran ditekan agar rasio mencapai target wajar.
-
-### 5.4 Adaptive Throttling Engine (Dynamic Rate Limiter)
+### 5.1 Adaptive Throttling Engine (Dynamic Rate Limiter)
 Server FASIH-SM BPS sering kali mengalami lonjakan beban respon (*traffic spikes*). TUNTAS mengimplementasikan mesin kendali kecepatan adaptif di `background.js`:
 - Mengukur latensi aktual setiap pemanggilan API, pembukaan tab, dan render formulir kuesioner.
 - Mempertahankan riwayat buffer 8 sampel latensi terakhir.
@@ -234,14 +203,20 @@ Server FASIH-SM BPS sering kali mengalami lonjakan beban respon (*traffic spikes
 - Mencegah akun pengguna diblokir atau ribuan antrian gagal serentak saat server BPS sedang tidak stabil.
 - Mengirimkan peringatan darurat ke Webhook WhatsApp / n8n.
 
-### 6.2 Session Guard & Keep-Alive FASIH
-- Mengirimkan *heartbeat* ringan ke server FASIH-SM setiap **4 menit** melalui tab yang sedang aktif.
-- Mencegah tab dibekukan oleh Chrome Memory Saver via properti `chrome.tabs.update(tabId, { autoDiscardable: false })`.
-- Mencegah Service Worker MV3 ditidurkan Chrome saat idle menggunakan loop timer `chrome.runtime.getPlatformInfo()`.
+### 6.2 Session Guard & Keep-Alive FASIH (4 Menit)
+- Menggunakan alarm berkala Chrome `tuntasKeepAlive` di `background.js` yang berjalan setiap **4 menit**.
+- Menyapa server FASIH via endpoint resmi `/app/api/survey/api/v1/users/myinfo` melalui tab FASIH yang terbuka.
+- Mencegah tab ditidurkan (*tab freezing/discarding*) oleh Memory Saver Chrome via properti `chrome.tabs.update(tabId, { autoDiscardable: false })`.
+- Jika sesi terdeteksi habis, ekstensi memperbarui status di popup dan menampilkan indikator visual tanda seru merah pada ikon ekstensi.
 
-### 6.3 Auto Login SSO Eksternal BPS
-- Mengidentifikasi otomatis jika sesi kedaluwarsa dan browser dialihkan ke halaman SSO BPS (`cas.bps.go.id` / login eksternal).
-- Otomatis mengklik tombol *"Lanjutkan SSO Eksternal"*, mengisi email & password terenkripsi dari konfigurasi popup, mengirimkan form, dan melanjutkan antrian yang tertunda.
+### 6.3 Auto Login SSO Eksternal BPS (Guarded State)
+- **Running-Only Guard**: Fitur auto-login **HANYA AKTIF** ketika runner otomasi berstatus `RUNNING` (tombol *Mulai Otomasi* atau *Test di Tab Aktif* ditekan). Saat pengguna membuka browser dalam kondisi idle atau berselancar biasa, kredensial dan tombol tidak disentuh secara otomatis.
+- **Auto-Click Tombol SSO Eksternal**:
+  - Mendeteksi tombol, link, atau card "Lanjutkan dengan SSO Eksternal" menggunakan variasi kata kunci luas (`eksternal`, `external`, `sobat`, `mitra`, `non-organik`).
+  - Mendukung penanganan radio card ("SSO Pegawai" vs "SSO Eksternal") dan tombol aksi submit.
+  - Menggunakan simulasi penekanan multi-event (`pointerdown`, `pointerup`, `mousedown`, `mouseup`, `click`) dan fallback navigasi `window.location.assign(href)`.
+  - Polling rendering SPA Nuxt hingga 8 detik (interval 500ms).
+- **Auto Fill Kredensial**: Mengisi kolom email & kata sandi dengan simulasi pengetikan input, lalu menekan tombol masuk secara otomatis.
 
 ### 6.4 Auto Revoke & Auto Approve
 - Jika assignment berstatus `Approved` saat hendak diperbaiki (sehingga tombol Edit terkunci), bot otomatis mencari dan menekan tombol **Revoke** di pojok kanan bawah toolbar, mengonfirmasi modal revoke, memuat ulang form, melakukan perbaikan, submit ulang, dan melakukan **Approve** kembali.
@@ -262,17 +237,17 @@ Server FASIH-SM BPS sering kali mengalami lonjakan beban respon (*traffic spikes
 
 ## 7. 📡 Integrasi Eksternal & Remote Control WhatsApp
 
-Ekstensi dapat dihubungkan ke workflow automation n8n (`https://n8n7309.online`) untuk notifikasi dan kendali dua arah dari WhatsApp.
+Ekstensi dapat dihubungkan ke workflow automation n8n (`https://n8n7309.online` atau instance n8n kustom) untuk notifikasi dan kendali dua arah dari WhatsApp.
 
-### 7.1 Webhook Notifikasi
-- Endpoint default: `https://n8n7309.online/webhook/notif-anomali`
+### 7.1 Webhook Notifikasi Dinamis
+- Endpoint URL dapat disesuaikan langsung dari opsi pengaturan pada popup (`runnerOptions.webhookUrl`).
 - Mengirimkan notifikasi selektif:
   - Saat antrian **Selesai Total (ALL COMPLETED)** (rekapitulasi sukses, gagal, dilewati).
   - Saat bot **Dijeda (PAUSE)** atau **Dihentikan (STOP)**.
   - Saat terjadi error kritis / kendala fatal server (bukan error wajar seperti data sudah diperbaiki).
 
 ### 7.2 Two-Way WhatsApp Remote Control & Dynamic Cloud Queue
-- Endpoint polling: `https://n8n7309.online/webhook/tuntas-bot-sync`
+- Endpoint sinkronisasi status & perintah dua arah dinamis (`runnerOptions.syncWebhookUrl`).
 - Background service worker melakukan sinkronisasi berkala (tiap 10-15 detik) untuk membaca instruksi remote:
 
 | Perintah WhatsApp | Fungsi & Perilaku Bot |
@@ -315,40 +290,37 @@ Disimpan di `chrome.storage.local` dengan struktur objek:
 ```
 
 ### 8.2 Konfigurasi Utama di `chrome.storage.local`
-- `runnerOptions`: Pengaturan eksekusi (mode, periodeId, stepDelay, ssoCredentials, webhookUrl, dsb.).
+- `runnerOptions`: Pengaturan eksekusi (mode, periodeId, stepDelay, ssoCredentials, webhookUrl, syncWebhookUrl, dsb.).
+- `runnerState`: State eksekusi aktif (`status`, `currentIndex`, `activeTabId`, `consecutiveFailures`, dsb.).
 - `savedQueue`: State antrian terakhir (memungkinkan resume jika browser tertutup atau crash).
 - `apiBackups`: Riwayat cadangan JSON kuesioner sebelum diubah via API (per assignment ID).
 - `tuntasKeepAliveState`: Status pemantauan sesi login FASIH-SM.
 
 ---
 
-## 9. 🚀 Panduan Setup & Pedoman Pengembangan
+## 9. 🚀 Pedoman Rekayasa & Standar Kualitas (QA, Git, Docs)
 
-### 9.1 Cara Memasang Ekstensi di Chrome
-1. Clone / download repositori ke direktori lokal (misalnya `D:\capek\Anomali`).
-2. Buka Google Chrome dan buka alamat: `chrome://extensions/`.
-3. Aktifkan toggle **Developer mode** di sudut kanan atas.
-4. Klik tombol **Load unpacked** di sudut kiri atas.
-5. Arahkan ke folder `D:\capek\Anomali`.
-6. Ikon **TUNTAS SE2026** akan muncul di bilah ekstensi Chrome.
+Setiap agen AI dan pengembang yang bekerja pada repositori ini terikat pada standar ketat di [**`AGENTS.md`**](file:///d:/capek/Anomali/AGENTS.md):
 
-### 9.2 Panduan Pengembangan Penting (Developer Notes & Gotchas)
-1. **Manifest V3 Worker Termination**:
-   - Service worker di MV3 dapat dihentikan oleh browser jika tidak ada aktivitas tab dalam 30 detik. Fungsi `startKeepAlive()` di `background.js` secara teratur memanggil API ringan Chrome (`chrome.runtime.getPlatformInfo()`) setiap 10 detik saat runner berstatus `RUNNING` untuk memastikan eksekusi tidak terputus di tengah jalan.
-2. **FormGear Form Lifecycle di FASIH**:
-   - FASIH dibangun dengan framework SPA dinamis (Vue/FormGear). Elemen formulir dimuat secara asinkron (*lazy-loaded*). Jangan berasumsi selector DOM langsung tersedia saat `DOMContentLoaded`. Selalu gunakan helper `waitForSelector`, `waitForTabComplete`, atau `waitContentReady` dengan polling dan timeout yang memadai.
-3. **Format URL Assignment FASIH**:
-   - URL berformat `/app/assignment-detail/<id>` tidak memiliki endpoint `/edit` langsung di server (akan 404). Oleh karena itu, ekstensi mengonversi URL menjadi `/app/assignment/<periodeId>/<id>/edit` menggunakan `periodeId` yang telah dikonfigurasi pada popup.
-4. **Keamanan API FormGear (`fasih_api.js`)**:
-   - Server FASIH tidak melakukan validasi aturan form kuesioner saat menerima POST data mentah melalui API. Untuk menjaga integritas data sensus, setiap kali perubahan dilakukan via API, ekstensi **wajib** membuka formulir di tab browser dan mengeksekusi penekanan tombol **Kirim** visual agar mesin validasi FormGear memverifikasi bahwa kuesioner tidak memiliki status GALAT (Clean).
-5. **Preservasi Kolom pada Export Log**:
-   - Fitur export log mempertahankan 100% kolom asli dari file Excel yang diimpor oleh pengguna, dan hanya menambahkan kolom `status` serta `keterangan` di urutan kolom paling belakang.
-6. **Penanganan Auto Revoke pada Dokumen Approved (Visual & API)**:
-   - Pada form visual, jika assignment berstatus Approved tombol Kirim tidak tersedia; bot menekan Revoke di toolbar kanan bawah, mengonfirmasi modal, dan membuka kembali formulir menggunakan URL target (`targetUrl`).
-   - Pada Mode API, deteksi dilakukan via `asg.assignment_status_alias`. Jika berstatus Approved, tab dibuka untuk mengeksekusi Revoke terlebih dahulu sebelum API FormGear dipanggil.
-7. **Skalabilitas Antrian Masif & Manajemen Memori (6.000–7.000+ Baris)**:
-   - Untuk mencegah crash V8 (`RangeError: Invalid string length` > 512 MB) saat memproses ribuan data, snapshot `apiBackups` di `chrome.storage.local` dipangkas otomatis maksimal 50 riwayat terakhir.
-   - Tabel popup menggunakan *virtual windowing* (100 baris aktif) agar rendering DOM instan (<10ms) dan bebas lag.
+### 9.1 Git Safe Workflow (No Direct Push to Main)
+- **Dilarang keras** melakukan *commit* atau *push* langsung ke `main` secara otomatis.
+- Selalu buat branch fitur/fix baru (`feat/*`, `fix/*`), uji secara mandiri, dan push hanya ke branch kerja tersebut.
+- Merge ke `main` hanya boleh dieksekusi setelah mendapatkan persetujuan eksplisit dari pengguna.
+- Dipandu oleh skill: [`.agents/skills/git-safe-workflow/SKILL.md`](file:///d:/capek/Anomali/.agents/skills/git-safe-workflow/SKILL.md).
+
+### 9.2 QA & Zero-Regression Guard
+- Fitur baru tidak boleh mematahkan kestabilan fitur lama (*Primum Non Nocere*).
+- Setiap fitur baru harus diisolasi dengan `try...catch` dan memiliki safe fallback.
+- Verifikasi wajib dijalankan sebelum setiap commit:
+  ```powershell
+  node scripts/verify-all.js
+  ```
+- Dipandu oleh skill: [`.agents/skills/qa-regression-guard/SKILL.md`](file:///d:/capek/Anomali/.agents/skills/qa-regression-guard/SKILL.md).
+
+### 9.3 Dokumentasi Sinkron & Disiplin (Doc-Sync Rule)
+- Setiap kali menambahkan fitur baru atau memperbaiki bug, `README.md` (panduan pengguna) dan `context.md` (arsitektur sistem) **wajib diperbarui dalam commit yang sama**.
+- Tidak boleh ada deviasi (*drift*) antara implementasi kode aktual dengan dokumen panduan.
+- Dipandu oleh skill: [`.agents/skills/doc-sync/SKILL.md`](file:///d:/capek/Anomali/.agents/skills/doc-sync/SKILL.md).
 
 ---
 *Dokumen ini dirancang sebagai referensi tunggal kebenaran (Single Source of Truth) arsitektur sistem TUNTAS SE2026.*

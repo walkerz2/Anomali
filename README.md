@@ -150,17 +150,20 @@ Untuk setiap baris pada file Excel:
 
 1. **Akun FASIH, Auto Login SSO Eksternal & Penjaga Sesi**:
    - **Jaga Sesi FASIH Tetap Aktif**: Memastikan sesi Anda di FASIH-SM tidak kedaluwarsa saat browser didiamkan. Cukup biarkan minimal satu tab `fasih-sm.bps.go.id` terbuka di latar belakang. Ekstensi akan mengirimkan *heartbeat* ringan ke server tiap 4 menit dan mengunci tab agar tidak dibekukan (*autoDiscardable: false*).
-   - Ekstensi dilengkapi fitur **Auto Login SSO Eksternal**: jika sesi berakhir atau tab dialihkan ke halaman login SSO BPS, bot akan otomatis mengklik **"Lanjutkan SSO Eksternal"**, memasukkan email SSO dan kata sandi `XXXXXX`, lalu mengirim formulir login dan kembali melanjutkan antrian.
-   - Anda juga dapat menyesuaikan email/kata sandi SSO kapan saja melalui menu Pengaturan pada popup.
+   - **Auto Login SSO Eksternal (Cerdas & Aman)**:
+     - Jika sesi berakhir saat otomasi berjalan, bot akan otomatis mengklik tombol **"Lanjutkan dengan SSO Eksternal"**, mengisi email & password, lalu mengirim formulir login dan kembali melanjutkan antrian secara mandiri.
+     - **Keamanan Running-Guarded**: Fitur auto-login **hanya aktif saat tombol 'Mulai Otomasi' atau 'Test di Tab Aktif' sedang berjalan (status RUNNING)**. Jika Anda membuka halaman login saat browsing biasa / ekstensi idle, form tidak akan disentuh otomatis.
+     - Mendukung pendeteksian tombol fleksibel (berbagai variasi teks/elemen SSO eksternal) dan polling rendering SPA otomatis hingga 8 detik.
+   - Anda dapat menyesuaikan email/kata sandi SSO kapan saja melalui menu Pengaturan pada popup.
 2. **Buka Ekstensi**:
    - Klik ikon **TUNTAS SE2026** di toolbar Chrome.
 3. **Import File Excel**:
    - Klik area upload atau tarik file Excel (misal: `Nilai Tambah positif tapi flag 3 binjai test.xlsx`).
    - Ekstensi akan otomatis mendeteksi kolom `link_fasih_sm` dan menampilkan daftar antrian.
 4. **Atur Pengaturan (Opsional)**:
-   - **Email & Password SSO**: Default `xxxxxx@gmail.com` & `XXXXXX` (bisa diubah di popup).
-   - **Auto Login SSO Eksternal**: Centang untuk otomatis login saat sesi kedaluwarsa.
-    - **Jaga Sesi FASIH Tetap Aktif (Keep-Alive)**: Centang (default aktif) agar ekstensi secara otomatis menyapa server FASIH-SM setiap 4 menit lewat tab FASIH yang terbuka. Menjaga sesi login tidak habis karena lama diam dan mencegah tab ditidurkan (*discarded*) oleh Memory Saver Chrome. Status sesi (aktif/habis beserta jam terakhir diperpanjang) terpantau langsung di popup, dan ikon ekstensi menampilkan tanda seru merah (**!**) bila sesi habis.
+   - **Email & Password SSO**: Default kredensial (bisa diubah di popup).
+   - **Auto Login SSO Eksternal**: Centang untuk otomatis login saat sesi kedaluwarsa di tengah-tengah antrian.
+   - **Jaga Sesi FASIH Tetap Aktif (Keep-Alive)**: Centang (default aktif) agar ekstensi secara otomatis menyapa server FASIH-SM setiap 4 menit lewat tab FASIH yang terbuka. Menjaga sesi login tidak habis karena lama diam dan mencegah tab ditidurkan (*discarded*) oleh Memory Saver Chrome. Status sesi terpantau langsung di popup, dan ikon ekstensi menampilkan tanda seru merah (**!**) bila sesi habis.
    - **Catatan Utama**: Default `#DC_00` (satu catatan saja, tanpa catatan tambahan).
    - **Jeda per Langkah**: Default `1.5` detik (dapat disesuaikan secara manual dari 0.5 s.d. 10 detik).
    - **Adaptive Throttling (Penyesuaian Kecepatan Otomatis)**: Centang (default aktif) agar bot secara dinamis memantau latensi dan beban server FASIH BPS (waktu muat tab, durasi respon API, dan rendering SPA) serta menyesuaikan kecepatan eksekusi secara cerdas:
@@ -170,26 +173,19 @@ Untuk setiap baris pada file Excel:
      - **🔴 3.0x Sangat Lambat (>8.0s / timeout / error 429 / 503)**: Menyesuaikan jeda langkah menjadi ~4.5s dan menambahkan jeda antar-antrian +7.0s untuk mencegah kegagalan massal atau trip circuit breaker.
      - **Pemulihan Otomatis (Cool-down)**: Begitu server kembali merespons cepat secara konsisten (2 pengukuran berurutan), kecepatan bot secara bertahap diturunkan kembali ke normal (1.0x).
      - **Live Status Monitor**: Memantau badge kecepatan, jeda aktif, dan latensi terkini server secara transparan di pop-up ekstensi.
-   - **Tampilkan konfirmasi sebelum kirim (untuk cek kesesuaian)**: Centang jika Anda ingin memeriksa isian terlebih dahulu sebelum survei dikirim. Ekstensi akan menampilkan modal konfirmasi interaktif di halaman dengan opsi:
-     - *Ya, Sudah Sesuai & Lanjut Kirim*
-     - *Lewati Kirim (Simpan Catatan & Lanjut Antrian)*
-     - *Hentikan di Sini (Periksa Manual)*
+   - **Tampilkan konfirmasi sebelum kirim (untuk cek kesesuaian)**: Centang jika Anda ingin memeriksa isian terlebih dahulu sebelum survei dikirim. Ekstensi akan menampilkan modal konfirmasi interaktif di halaman.
    - **Kirim survei & konfirmasi modal di akhir**: Centang untuk otomatis submit survei.
    - **Tutup tab setelah survei berhasil dikirim**: Centang untuk menutup tab secara otomatis (berlaku untuk dokumen yang selesai maupun yang dilewati/skip).
-    - **Auto Revoke jika Dokumen Sudah di-Approve**: Jika assignment sudah berstatus Approved sehingga tombol Kirim tidak tersedia, bot otomatis mengklik tombol Revoke (ikon panah putar balik di toolbar pojok kanan bawah), mengonfirmasi dialog Revoke, menunggu reload formulir selesai, mengisi catatan (misal 27.a atau 13.g), submit formulir, dan melakukan Approve kembali.
-    - **Auto Approve**: Centang untuk otomatis membuka halaman review dan mengklik tombol Approve setelah survei berhasil disubmit.
-    - **Notifikasi Webhook (n8n / Telegram)**: Mengirim notifikasi otomatis secara selektif ke endpoint Webhook. Notifikasi **hanya** dikirim jika ekstensi macet/tidak jalan (server FASIH down, 500/502/503/504, timeout >35s/70s, SSO gagal, koneksi terputus, formulir tidak terbuka) atau kandas dalam proses pemberian remark (pertanyaan target tidak ditemukan, modal catatan gagal dibuka, unit usaha/KBLI tidak ditemukan, gagal revoke, atau galat formulir). Event wajar seperti remark sudah ada sebelumnya, link URL Excel tidak valid, atau kendala tombol Approve setelah dokumen sukses terkirim tidak akan memicu notifikasi.
-    - **Circuit Breaker**: Pengaman otomatis yang akan menjeda antrian jika terjadi 3 kegagalan beruntun akibat server FASIH down atau timeout jaringan.
-    - **Notifikasi Status Otomatis ke WhatsApp (Selesai, Jeda, Stop)**: Mengirim pesan terformat otomatis ke WhatsApp melalui Webhook n8n saat:
-      - *Antrian Selesai Total (ALL COMPLETED)*: Menyertakan ringkasan total kuesioner yang berhasil diselesaikan, jumlah sukses, dan gagal.
-      - *Bot Dijeda (PAUSE)*: Menyertakan keterangan alasan jeda (dari pop-up ekstensi, remote WhatsApp `#JEDA`, atau trip *Circuit Breaker*).
-      - *Bot Dihentikan (STOP)*: Menyertakan status akhir dan titik baris antrian terakhir yang sempat diproses.
-      - *Standarisasi Waktu Indonesia Tengah (WITA / Asia/Makassar)*: Seluruh stempel waktu notifikasi, telemetri sinkronisasi, dan laporan obrolan dikunci ke zona WITA (UTC+8) agar selalu tepat sesuai jam lokal pengguna.
-    - **WhatsApp Two-Way Remote & Dynamic Cloud Queue**: Memungkinkan Anda memantau seluruh PC yang sedang bekerja dan mengendalikannya secara nirkabel langsung dari obrolan WhatsApp melalui n8n:
-      - **Monitoring Status Real-Time**: Perintah `#STATUS` untuk melihat progress semua PC (jumlah baris selesai, status server, nama usaha yang sedang diproses), atau `#STATUS PC 1` untuk memeriksa PC tertentu.
-      - **Remote Control (Jeda, Lanjut, Stop)**: Perintah `#JEDA`, `#LANJUT`, atau `#STOP` untuk mengontrol semua PC sekaligus atau unit tertentu (misal `#JEDA PC 2`, `#LANJUT PC 1`).
-      - **Dynamic Cloud Queue**: Perintah `#TAMBAH [link_fasih]` (contoh: `#TAMBAH https://fasih-sm.bps.go.id/app/assignment-detail/...`) untuk menyisipkan link kuesioner baru ke dalam antrian secara langsung tanpa harus membuka laptop atau mengunggah ulang file Excel!
-      - **Bantuan Perintah**: Ketik `#QUERY` atau `#HELP` di WhatsApp untuk melihat daftar perintah bot lengkap beserta formatnya.
+   - **Auto Revoke jika Dokumen Sudah di-Approve**: Jika assignment sudah berstatus Approved sehingga tombol Kirim tidak tersedia, bot otomatis mengklik tombol Revoke, mengonfirmasi dialog Revoke, menunggu reload formulir selesai, mengisi catatan (misal 27.a atau 13.g), submit formulir, dan melakukan Approve kembali.
+   - **Auto Approve**: Centang untuk otomatis membuka halaman review dan mengklik tombol Approve setelah survei berhasil disubmit.
+   - **Notifikasi Webhook Dinamis (n8n / Telegram)**: Mengirim notifikasi otomatis secara selektif ke endpoint Webhook kustom yang dapat diatur di popup. Notifikasi **hanya** dikirim jika ekstensi macet/tidak jalan atau kandas dalam proses pemberian remark.
+   - **Circuit Breaker**: Pengaman otomatis yang akan menjeda antrian jika terjadi 3 kegagalan beruntun akibat server FASIH down atau timeout jaringan.
+   - **Notifikasi Status Otomatis ke WhatsApp (Selesai, Jeda, Stop)**: Mengirim pesan terformat otomatis ke WhatsApp melalui Webhook n8n saat antrian selesai total, dijeda, atau dihentikan. Stempel waktu dibakukan ke Waktu Indonesia Tengah (**WITA / UTC+8**).
+   - **WhatsApp Two-Way Remote & Dynamic Cloud Queue**: Memungkinkan Anda memantau seluruh PC yang sedang bekerja dan mengendalikannya secara nirkabel langsung dari obrolan WhatsApp melalui n8n:
+     - **Monitoring Status Real-Time**: Perintah `#STATUS` untuk melihat progress semua PC (jumlah baris selesai, status server, nama usaha yang sedang diproses), atau `#STATUS PC 1` untuk memeriksa PC tertentu.
+     - **Remote Control (Jeda, Lanjut, Stop)**: Perintah `#JEDA`, `#LANJUT`, atau `#STOP` untuk mengontrol semua PC sekaligus atau unit tertentu (misal `#JEDA PC 2`, `#LANJUT PC 1`).
+     - **Dynamic Cloud Queue**: Perintah `#TAMBAH [link_fasih]` (contoh: `#TAMBAH https://fasih-sm.bps.go.id/app/assignment-detail/...`) untuk menyisipkan link kuesioner baru ke dalam antrian secara langsung tanpa harus membuka laptop atau mengunggah ulang file Excel!
+     - **Bantuan Perintah**: Ketik `#QUERY` atau `#HELP` di WhatsApp untuk melihat daftar perintah bot lengkap beserta formatnya.
 5. **Mulai Eksekusi**:
    - Klik tombol **Mulai Otomasi**.
    - Ekstensi akan membuka tab, memproses alur step-by-step, dan memperbarui tabel status secara real-time.
@@ -197,10 +193,24 @@ Untuk setiap baris pada file Excel:
 6. **Fitur "Test di Tab Aktif"**:
    - Jika Anda sedang membuka halaman formulir FASIH pada tab saat ini dan ingin menguji coba langkah tanpa melalui antrian Excel, cukup klik tombol **Test di Tab Aktif**.
 7. **Export Log Hasil ke Excel**:
-   - Klik tombol hijau **Export Log Excel** di atas tabel antrian kapan saja (baik saat proses berjalan, dijeda, maupun setelah selesai).
-   - File Excel hasil akan mempertahankan seluruh kolom asli dari file yang diimpor, dengan tambahan kolom di paling belakang:
-     - **`status`**: Menampilkan status akhir setiap baris (`SUKSES`, `GAGAL`, `DILEWATI`, atau `PENDING`).
-     - **`keterangan`**: Menampilkan pesan keberhasilan (*Sukses terkirim*) atau penyebab error/kegagalan (*misal: Tombol Edit tidak ditemukan, Menu BLOK II tidak ditemukan, dll.*) sehingga mudah ditelusuri baris mana yang gagal dan alasannya.
+   - Klik tombol hijau **Export Log Excel** di atas tabel antrian kapan saja.
+   - File Excel hasil akan mempertahankan seluruh kolom asli dari file yang diimpor, dengan tambahan kolom di paling belakang: `status` dan `keterangan`.
+
+---
+
+## 🛠️ Jaminan Kualitas, Uji Mandiri & Standar Rekayasa
+
+Proyek ini dilengkapi dengan skrip verifikasi integritas dan kepatuhan kode otomatis untuk memastikan zero-regression pada seluruh fitur kritis:
+
+```powershell
+# Jalankan verifikasi menyeluruh seluruh berkas JS & manifest:
+node scripts/verify-all.js
+```
+
+Seluruh pengembang dan asisten AI wajib mengikuti aturan di [**`AGENTS.md`**](file:///d:/capek/Anomali/AGENTS.md):
+1. **Dilarang push langsung ke main**: Selalu buat branch fitur/fix kerja (`feat/*`, `fix/*`) dan tunggu instruksi pengguna.
+2. **Zero-Regression Guard**: Fitur baru tidak boleh mematahkan fitur lama, wajib diisolasi dengan `try...catch` dan memiliki safe fallback.
+3. **Doc-Sync Rule**: Setiap ada penambahan fitur atau perbaikan kode, `README.md` dan `context.md` wajib dimutakhirkan dalam commit yang sama.
 
 ---
 
@@ -209,7 +219,12 @@ Untuk setiap baris pada file Excel:
 ```
 Anomali/
 ├── manifest.json            # Konfigurasi Chrome Extension Manifest V3
-├── icons/                   # Ikon ekstensi (16px, 48px, 128px)
+├── README.md                # Dokumentasi & panduan penggunaan pengguna
+├── context.md               # Arsitektur teknis lengkap & referensi pengembang
+├── AGENTS.md                # Aturan pengembangan & workflow AI agent
+├── THIRD_PARTY_LICENSES.txt # Lisensi pihak ketiga
+├── logo.jpeg                # Logo visual ekstensi
+├── icons/                   # Ikon ekstensi (16px, 32px, 48px, 128px)
 ├── lib/
 │   ├── ntb_validator.js     # Mesin validasi & imputasi rasio NTB (client-side)
 │   └── xlsx.full.min.js     # SheetJS untuk membaca file Excel secara lokal & offline
@@ -218,10 +233,15 @@ Anomali/
 │   ├── popup.css            # Desain tampilan UI
 │   └── popup.js             # Logika import Excel, antrian, & kontrol
 ├── background/
-│   └── background.js        # Service Worker pengendali tab & queue
+│   └── background.js        # Service Worker pengendali tab, queue, keepalive, webhook
 ├── content/
-│   ├── content.js           # Content Script pelaksana otomasi DOM di fasih-sm
+│   ├── content.js           # Content Script pelaksana otomasi DOM di fasih-sm & auto SSO
 │   └── fasih_api.js         # Library API FASIH untuk perubahan variabel langsung
-├── template/                # File template Excel (.xlsx)
-└── README.md                # Dokumentasi & panduan penggunaan
+├── scripts/
+│   └── verify-all.js        # Skrip uji otomatis AST syntax & integritas action
+├── .agents/skills/          # Modul skills panduan agen
+│   ├── git-safe-workflow/   # Panduan workflow git yang aman
+│   ├── qa-regression-guard/ # Panduan jaminan kualitas & zero regression
+│   └── doc-sync/            # Panduan pembaruan disiplin README & context
+└── template/                # File template Excel (.xlsx)
 ```

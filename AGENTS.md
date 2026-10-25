@@ -17,3 +17,9 @@
      node scripts/verify-all.js
      ```
   4. **Uji 6 Fitur Kritis**: Pastikan (1) Runner Queue, (2) Auto-SSO Eksternal, (3) Keep-Alive 4 Menit, (4) Webhook n8n & WhatsApp Bot, (5) Validasi NTB, dan (6) Popup UI tetap berfungsi normal tanpa regresi.
+
+## 3. Kewajiban Sinkronisasi Dokumentasi (Doc-Sync Rule)
+- Setiap kali menambahkan fitur baru, memperbaiki bug, atau mengubah kodingan:
+  1. **Update `README.md`**: Perbarui panduan pengguna, deskripsi menu, atau alur kerja yang terdampak dengan bahasa yang jelas.
+  2. **Update `context.md`**: Perbarui spesifikasi teknis, arsitektur, struktur berkas, daftar message actions, dan perbarui tanggal header (`Terakhir diperbarui: ... WITA`).
+  3. **Zero Documentation Drift**: Kode dan dokumentasi wajib disinkronkan dalam commit yang sama sebelum diajukan untuk merge ke `main`.
