@@ -1364,8 +1364,22 @@ let apiHelperTabId = null;
 let apiHelperNav = [];
 
 // Listener perpindahan URL pada tab bantu API
-chrome.tabs.onUpdated.addListener((tId, c) => {
+chrome.tabs.onUpdated.addListener(async (tId, c, tab) => {
   if (tId === apiHelperTabId && c.url) apiHelperNav.push(c.url);
+
+  // Jika suatu tab memasuki halaman login / SSO dan selesai dimuat:
+  if (c.status === 'complete') {
+    const url = (tab && tab.url) || c.url || '';
+    if (isSsoOrLoginUrl(url)) {
+      try {
+        const stored = await chrome.storage.local.get(['runnerOptions']).catch(() => null);
+        const opts = stored?.runnerOptions || runnerState.options || {};
+        if (opts.autoSsoLogin !== false) {
+          chrome.tabs.sendMessage(tId, { action: 'TRIGGER_SSO_LOGIN', options: opts }).catch(() => {});
+        }
+      } catch (_) {}
+    }
+  }
 });
 
 // Jalankan pekerjaan API di tab bantu sebagai job + tanya status berkala
@@ -1397,13 +1411,38 @@ function assignmentIdOf(item) {
 // Tab bantu (halaman FASIH tanpa form) untuk memanggil API — dipakai ulang selama antrian berjalan
 async function getApiHelperTab() {
   if (apiHelperTabId) {
-    try { await chrome.tabs.get(apiHelperTabId); return apiHelperTabId; } catch (e) { apiHelperTabId = null; }
+    try {
+      const existingTab = await chrome.tabs.get(apiHelperTabId);
+      if (existingTab && !isSsoOrLoginUrl(existingTab.url)) {
+        return apiHelperTabId;
+      }
+    } catch (e) {
+      apiHelperTabId = null;
+    }
   }
   const t = await chrome.tabs.create({ url: 'https://fasih-sm.bps.go.id/app/', active: false });
   apiHelperTabId = t.id;
   apiHelperNav = [];
   await waitForTabComplete(t.id, 35000);
   await randomSleep(1500, 2200);
+
+  // Jika tab bantu diarahkan ke login / SSO, proses login otomatis dan tunggu hingga kembali ke /app/
+  let checkTab = null;
+  try { checkTab = await chrome.tabs.get(t.id); } catch (_) {}
+  if (checkTab && isSsoOrLoginUrl(checkTab.url)) {
+    console.log('[TUNTAS BG] Tab bantu API dialihkan ke SSO/login. Memproses auto login SSO...');
+    try {
+      await chrome.tabs.sendMessage(t.id, {
+        action: 'TRIGGER_SSO_LOGIN',
+        options: runnerState.options
+      });
+    } catch (_) {}
+    const landed = await waitForPostSsoLanding(t.id, 25000);
+    if (landed) {
+      await randomSleep(1500, 2200);
+    }
+  }
+
   return t.id;
 }
 
@@ -1826,7 +1865,17 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
 
       // Jika DISCONNECTED tetapi bukan karena SSO/login dan bukan karena needRedirectEdit, jangan mengulang baris yang sama tanpa henti
       if (isDisconnected && !needRedirect && !wasOnExternalSso && !hadSsoStep && !isSsoOrLoginUrl(curUrl) && !isSsoOrLoginUrl(preStepUrl)) {
-        break;
+        // Beri jeda 800ms dan periksa ulang tab URL untuk memastikan tab bukan sedang navigasi ke SSO
+        await sleep(800);
+        let recheckUrl = '';
+        try {
+          const tNow = await chrome.tabs.get(tab.id);
+          recheckUrl = (tNow && tNow.url) || '';
+        } catch (_) {}
+        if (!isSsoOrLoginUrl(recheckUrl) && !isExternalSsoIdpUrl(recheckUrl)) {
+          break;
+        }
+        curUrl = recheckUrl;
       }
 
       const candidateEditUrl = (needRedirect && response.result && response.result.editUrl && /\/assignment\//i.test(response.result.editUrl))
