@@ -766,14 +766,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function saveSettings() {
-    chrome.storage.local.set({ runnerOptions: getOptions(), activeMode }).catch(() => {});
+    const opts = getOptions();
+    chrome.storage.local.set({ runnerOptions: opts, activeMode }).catch(() => {});
+    chrome.runtime.sendMessage({ action: 'UPDATE_OPTIONS', options: opts }).catch(() => {});
   }
   [commentInput, dc0TargetSelect, dc1TargetSelect, catatanDigantiInput, delayInput, periodeInput,
-    ssoEmailInput, ssoPasswordInput, pcNameInput, webhookUrlInput, checkEnableWebhook, checkNotifyOnComplete, checkNotifyOnPauseStop, checkAutoSsoLogin,
-    checkAutoRevoke,
-    checkRequireConfirm, checkAutoApprove, checkCloseTab, checkApiDryRun]
+    ssoEmailInput, ssoPasswordInput, pcNameInput, webhookUrlInput, whatsappSyncUrlInput,
+    checkEnableWhatsAppRemote, checkEnableWebhook, checkNotifyOnComplete, checkNotifyOnPauseStop, checkAutoSsoLogin,
+    checkAutoRevoke, checkRequireConfirm, checkAutoApprove, checkCloseTab, checkApiDryRun]
     .filter(Boolean)
     .forEach(el => el.addEventListener('change', saveSettings));
+
+  [whatsappSyncUrlInput, webhookUrlInput, pcNameInput].filter(Boolean).forEach(el => {
+    el.addEventListener('input', saveSettings);
+  });
 
 
   // ---------- Menu Ubah Variabel: backup, restore, cari dataKey ----------

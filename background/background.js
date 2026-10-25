@@ -458,7 +458,11 @@ async function buildWhatsAppStatusPayload() {
 }
 
 async function syncWithWhatsAppRemote({ force = false, test = false } = {}) {
-  const opts = runnerState.options || {};
+  const store = await chrome.storage.local.get(['runnerOptions', 'runnerState']);
+  if (store.runnerOptions) {
+    runnerState.options = { ...runnerState.options, ...store.runnerOptions };
+  }
+  const opts = store.runnerOptions || runnerState.options || {};
   if (!force && !test && opts.enableWhatsAppRemote === false) {
     return { ok: false, skipped: true, reason: 'Fitur WhatsApp Remote dinonaktifkan di pengaturan' };
   }
@@ -542,7 +546,11 @@ async function sendWebhookStatusNotification({
   customUrl = ''
 } = {}) {
   try {
-    const opts = (runnerState && runnerState.options) || {};
+    const storeOpts = await chrome.storage.local.get(['runnerOptions']);
+    if (storeOpts.runnerOptions) {
+      runnerState.options = { ...runnerState.options, ...storeOpts.runnerOptions };
+    }
+    const opts = storeOpts.runnerOptions || (runnerState && runnerState.options) || {};
     if (!customUrl && opts.enableWebhook === false) {
       return { ok: false, skipped: true, reason: 'Webhook dinonaktifkan' };
     }
@@ -2434,10 +2442,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
 
+  if (request.action === 'UPDATE_OPTIONS') {
+    if (request.options) {
+      runnerState.options = { ...runnerState.options, ...request.options };
+      chrome.storage.local.set({ runnerOptions: runnerState.options }).catch(() => {});
+    }
+    sendResponse({ ok: true, options: runnerState.options });
+    return false;
+  }
+
   if (request.action === 'TEST_WHATSAPP_SYNC') {
     (async () => {
       if (request.whatsappSyncUrl) {
-        runnerState.options.whatsappSyncUrl = request.whatsappSyncUrl.trim();
+        const url = request.whatsappSyncUrl.trim();
+        runnerState.options.whatsappSyncUrl = url;
+        const store = await chrome.storage.local.get(['runnerOptions']);
+        const curOpts = store.runnerOptions || {};
+        curOpts.whatsappSyncUrl = url;
+        await chrome.storage.local.set({ runnerOptions: { ...runnerState.options, ...curOpts } });
       }
       const res = await syncWithWhatsAppRemote({ force: true, test: true });
       sendResponse(res);
@@ -3036,6 +3058,16 @@ chrome.runtime.onStartup.addListener(() => {
   setupKeepAlive().catch(() => {});
   setupWhatsAppSyncAlarm().catch(() => {});
   startWhatsAppSyncLoop();
+});
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local' && changes.runnerOptions && changes.runnerOptions.newValue) {
+    runnerState.options = { ...runnerState.options, ...changes.runnerOptions.newValue };
+  }
+});
+chrome.storage.local.get(['runnerOptions'], (data) => {
+  if (data && data.runnerOptions) {
+    runnerState.options = { ...runnerState.options, ...data.runnerOptions };
+  }
 });
 setupKeepAlive().catch(() => {});
 setupWhatsAppSyncAlarm().catch(() => {});
