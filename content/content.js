@@ -295,6 +295,19 @@
       return 'SERVER_DOWN: Koneksi terputus ke server FASIH-SM (ERR_CONNECTION).';
     }
 
+    // 4. Cek jika URL kuesioner tidak dapat dibuka / 404 / assignment tidak ditemukan / tidak ada izin
+    if (
+      bodyText.includes('url tidak dapat dibuka') ||
+      bodyText.includes('formulir tidak dapat dibuka') ||
+      bodyText.includes('kuesioner tidak ditemukan') ||
+      bodyText.includes('data assignment tidak ditemukan') ||
+      bodyText.includes('tidak memiliki akses ke kuesioner') ||
+      bodyText.includes('halaman tidak ditemukan') ||
+      bodyText.includes('404 not found')
+    ) {
+      return 'URL_ERROR: Formulir/URL kuesioner tidak dapat dibuka atau tidak ditemukan di FASIH.';
+    }
+
     return null;
   }
 
@@ -4175,14 +4188,17 @@
           }
         }
 
-        // Periksa apakah gagal karena server down di tengah pemuatan
+        // Periksa apakah gagal karena server down atau URL tidak dapat dibuka di tengah pemuatan
         const downMsg = detectServerDownOrErrorPage();
         if (downMsg) {
-          notifyStep('SERVER_DOWN', downMsg, 'error');
+          const isUrlError = downMsg.startsWith('URL_ERROR:');
+          notifyStep(isUrlError ? 'URL_ERROR' : 'SERVER_DOWN', downMsg, 'error');
           return {
             success: false,
-            isServerDown: true,
-            error: downMsg
+            isServerDown: !isUrlError,
+            skipped: isUrlError,
+            error: downMsg,
+            reason: downMsg
           };
         }
 

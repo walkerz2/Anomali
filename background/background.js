@@ -105,6 +105,8 @@ let runnerState = {
     enableWebhook: true,
     enableWhatsAppRemote: true,
     whatsappSyncUrl: DEFAULT_WHATSAPP_SYNC_URL,
+    notifyOnComplete: true,
+    notifyOnPauseStop: true,
     webhookUrl: DEFAULT_WEBHOOK_URL,
     apiDryRun: true
   }
@@ -545,12 +547,24 @@ async function sendWebhookStatusNotification({
 
     const controller = new AbortController();
     const timeoutHandle = setTimeout(() => controller.abort(), 10000);
-    const response = await fetch(webhookUrl, {
+    let response = await fetch(webhookUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*'
+      },
       body: JSON.stringify(payload),
       signal: controller.signal
     });
+    if (response.status === 404 || response.status === 405) {
+      try {
+        const u = new URL(webhookUrl);
+        u.searchParams.set('event', payload.event);
+        u.searchParams.set('status', payload.status);
+        u.searchParams.set('message', payload.message);
+        response = await fetch(u.toString(), { method: 'GET' });
+      } catch (_) {}
+    }
     clearTimeout(timeoutHandle);
     return { ok: response.ok, status: response.status };
   } catch (err) {
@@ -1341,6 +1355,13 @@ async function runApiStep(item, index) {
     res = await call(false);
   }
   if (res && res.status === 'ABORTED') { await updateItemStatus(index, 'PENDING', 'Diberhentikan (Stop)'); return { done: true }; }
+  if (res && res.result && res.result.needRevoke) {
+    return { done: false, needRevoke: true, status: res.result.status, error: res.result.error };
+  }
+  const isApprovedError = res && res.error && /APPROV|sudah diapprove|sudah di-approve/i.test(String(res.error));
+  if (isApprovedError) {
+    return { done: false, needRevoke: true, error: res.error };
+  }
   if (!res || res.status !== 'DONE') {
     await updateItemStatus(index, 'FAILED', `API: ${(res && res.error) || 'tidak ada respons'}`);
     return { done: true };
@@ -1354,8 +1375,14 @@ async function runApiStep(item, index) {
   }
   if (r.backup) {
     const store = await chrome.storage.local.get(['apiBackups']);
-    const backups = store.apiBackups || {};
-    if (!backups[id]) backups[id] = r.backup;
+    let backups = store.apiBackups || {};
+    backups[id] = r.backup;
+    const keys = Object.keys(backups);
+    if (keys.length > 60) {
+      const trimmed = {};
+      keys.slice(-50).forEach(k => { trimmed[k] = backups[k]; });
+      backups = trimmed;
+    }
     await chrome.storage.local.set({ apiBackups: backups });
   }
   if (verifikasi) return { done: false, note: `API tersimpan${verifikasi}, v${r.versionAfter}` };
@@ -1395,7 +1422,7 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
     return { tabIdToClose: prevTabIdToClose };
   }
 
-  const rawUrl = item.link_fasih_sm || item.link;
+  const rawUrl = String(item.link_fasih_sm || item.link || '').trim().replace(/[\r\n\t]/g, '');
   if (!rawUrl || !rawUrl.startsWith('http')) {
     await updateItemStatus(index, 'FAILED', 'Link URL tidak valid.');
     return { tabIdToClose: prevTabIdToClose };
@@ -1404,29 +1431,104 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
   // Tambahkan /edit langsung di belakang link_fasih_sm untuk antrian
   const targetUrl = formatEditUrl(rawUrl, runnerState.options && runnerState.options.periodeId);
 
-    // ===== Menu "Ubah Variabel" (API): data diubah lewat API SEBELUM form dibuka =====
-  // (bila form dibuka lebih dulu, Kirim akan menimpa perubahan API dengan data lama di form)
+  // ===== Menu "Ubah Variabel" (API): data diubah lewat API SEBELUM form dibuka =====
   let apiNote = '';
+  let tab = null;
   if (item.mode === 'API') {
-    const pre = await runApiStep(item, index);
+    let pre = await runApiStep(item, index);
     if (pre.done) {
       return { tabIdToClose: prevTabIdToClose };
     }
-    apiNote = pre.note;
-    if (!runnerState.options.autoSubmitSurvey) {
-      await updateItemStatus(index, 'SUCCESS', `Tersimpan lewat API (tanpa Kirim form) | ${apiNote}`);
-      return { tabIdToClose: prevTabIdToClose };
+
+    // Auto Revoke jika assignment sudah Approved sebelum simpan via API
+    if (pre.needRevoke) {
+      if (runnerState.options.autoRevoke === false) {
+        await updateItemStatus(index, 'SKIPPED', 'Assignment sudah di-Approve (Auto Revoke tidak aktif)');
+        return { tabIdToClose: prevTabIdToClose };
+      }
+
+      await updateItemStatus(index, 'PROCESSING', 'Assignment berstatus Approved. Memproses Auto Revoke...');
+      let revokeTab = null;
+      try {
+        revokeTab = await chrome.tabs.create({ url: targetUrl, active: true });
+        if (prevTabIdToClose && prevTabIdToClose !== revokeTab.id) {
+          await safeCloseTab(prevTabIdToClose, { allowSingleTabWindow: true });
+          prevTabIdToClose = null;
+        }
+        runnerState.activeTabId = revokeTab.id;
+        runnerState.activeTargetUrl = targetUrl;
+        await chrome.storage.local.set({ runnerState });
+
+        await waitForTabComplete(revokeTab.id, 35000);
+        await randomSleep(2000, 3000);
+
+        let revRes = await sendTabMessageWithRetry(revokeTab.id, {
+          action: 'REVOKE_ASSIGNMENT',
+          options: runnerState.options
+        }, 5);
+
+        let isRevOk = (revRes && revRes.status === 'DONE' && revRes.result && revRes.result.success) ||
+                      (revRes && revRes.status === 'DISCONNECTED' && runnerState.tabRevokedRecently);
+
+        if (!isRevOk) {
+          const reviewUrl = targetUrl.split('?')[0].split('#')[0].replace(/\/+$/, '').replace(/\/edit$/i, '');
+          if (reviewUrl && reviewUrl !== targetUrl) {
+            await chrome.tabs.update(revokeTab.id, { url: reviewUrl });
+            await waitForTabComplete(revokeTab.id, 35000);
+            await randomSleep(1800, 2600);
+            revRes = await sendTabMessageWithRetry(revokeTab.id, {
+              action: 'REVOKE_ASSIGNMENT',
+              options: runnerState.options
+            }, 5);
+            isRevOk = (revRes && revRes.status === 'DONE' && revRes.result && revRes.result.success) ||
+                      (revRes && revRes.status === 'DISCONNECTED');
+          }
+        }
+
+        if (!isRevOk) {
+          await updateItemStatus(index, 'FAILED', `Gagal Auto Revoke: ${(revRes && (revRes.result?.error || revRes.error)) || 'Tombol Revoke tidak ditemukan'}`);
+          return { tabIdToClose: revokeTab.id };
+        }
+
+        await updateItemStatus(index, 'PROCESSING', 'Revoke berhasil! Menyimpan perubahan variabel via API...');
+        pre = await runApiStep(item, index);
+        if (pre.done) {
+          return { tabIdToClose: revokeTab.id };
+        }
+        apiNote = (pre.note || '') + ' (setelah Revoke)';
+
+        if (!runnerState.options.autoSubmitSurvey) {
+          await updateItemStatus(index, 'SUCCESS', `Tersimpan lewat API (tanpa Kirim form) | ${apiNote}`);
+          return { tabIdToClose: revokeTab.id };
+        }
+
+        // Muat ulang formulir /edit untuk verifikasi & submit
+        await chrome.tabs.update(revokeTab.id, { url: targetUrl });
+        await waitForTabComplete(revokeTab.id, 35000);
+        await randomSleep(2000, 3000);
+        tab = revokeTab;
+      } catch (errRev) {
+        await updateItemStatus(index, 'FAILED', `Gagal saat proses Revoke: ${errRev.message || errRev}`);
+        return { tabIdToClose: revokeTab ? revokeTab.id : prevTabIdToClose };
+      }
+    } else {
+      apiNote = pre.note;
+      if (!runnerState.options.autoSubmitSurvey) {
+        await updateItemStatus(index, 'SUCCESS', `Tersimpan lewat API (tanpa Kirim form) | ${apiNote}`);
+        return { tabIdToClose: prevTabIdToClose };
+      }
     }
   }
 
   await updateItemStatus(index, 'OPENING_TAB');
 
-  let tab = null;
   let shouldCloseCurrentTab = false;
   let response = null;
   try {
-    // Buat tab baru langsung dengan URL /edit
-    tab = await chrome.tabs.create({ url: targetUrl, active: true });
+    // Buat tab baru jika belum dibuat saat alur Revoke di atas
+    if (!tab) {
+      tab = await chrome.tabs.create({ url: targetUrl, active: true });
+    }
 
     // KARENA tab baru sudah berhasil dibuat di window yang sama,
     // menutup tab sebelumnya (prevTabIdToClose) DIJAMIN AMAN dan tidak akan pernah menutup window browser!
@@ -1748,7 +1850,7 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
 
         // Revoke berhasil! Sekarang buka kembali link /edit dan jalankan alur ulang
         await updateItemStatus(index, 'PROCESSING', 'Revoke berhasil! Membuka kembali formulir untuk mengisi catatan & kirim ulang...');
-        await chrome.tabs.update(tab.id, { url: targetEditUrl });
+        await chrome.tabs.update(tab.id, { url: targetUrl });
         await waitForTabComplete(tab.id, 35000);
         await randomSleep(2000, 3000);
 
@@ -1759,7 +1861,7 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
             ...item,
             isPostRevoke: true,
             mode: item.mode || runnerState.options.mode,
-            targetUrl: targetEditUrl
+            targetUrl: targetUrl
           }
         }, 5);
 
@@ -2020,6 +2122,12 @@ async function startQueueRunner(fromIndex = null, { forceRestart = false } = {})
       stopKeepAlive();
       await chrome.storage.local.set({ runnerState });
       broadcastToPopup({ action: 'ALL_COMPLETED' });
+      sendWebhookStatusNotification({
+        event: 'ALL_COMPLETED',
+        status: 'COMPLETED',
+        details: 'Semua item dalam antrian sudah selesai diproses.'
+      }).catch(() => {});
+      syncWithWhatsAppRemote({ force: true }).catch(() => {});
     }
   } catch (err) {
     console.error('[FASIH BG] Error pada antrian loop:', err);
@@ -2290,6 +2398,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         runnerState.status = 'IDLE';
         await chrome.storage.local.set({ runnerState, runnerOptions: runnerState.options });
         broadcastToPopup({ action: 'ALL_COMPLETED' });
+        sendWebhookStatusNotification({
+          event: 'ALL_COMPLETED',
+          status: 'COMPLETED',
+          details: 'Semua item dalam antrian sudah selesai diproses.'
+        }).catch(() => {});
+        syncWithWhatsAppRemote({ force: true }).catch(() => {});
         sendResponse({ success: false, allCompleted: true, message: 'Semua item dalam antrian sudah selesai diproses.' });
         return;
       }
@@ -2338,22 +2452,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'PAUSE_QUEUE') {
-    runnerState.status = 'PAUSED';
-    chrome.storage.local.set({ runnerState });
-    if (runnerState.activeTabId) {
-      chrome.tabs.sendMessage(runnerState.activeTabId, { action: 'PAUSE_WORKFLOW' }).catch(() => {});
-    }
-    chrome.tabs.query({ url: ['*://fasih-sm.bps.go.id/*', '*://*.bps.go.id/*'] }, (tabs) => {
-      if (tabs && tabs.length > 0) {
-        for (const t of tabs) {
-          chrome.tabs.sendMessage(t.id, { action: 'PAUSE_WORKFLOW' }).catch(() => {});
-        }
-      }
-    });
-    updateItemStatus(runnerState.currentIndex, 'PAUSED', 'Dijeda');
-    broadcastToPopup({ action: 'QUEUE_PAUSED' });
-    sendResponse({ success: true });
-    return false;
+    (async () => {
+      await pauseQueueExecution('Dijeda oleh pengguna dari pop-up');
+      syncWithWhatsAppRemote({ force: true }).catch(() => {});
+      sendResponse({ success: true });
+    })();
+    return true;
   }
 
   if (request.action === 'RESUME_QUEUE') {
@@ -2428,42 +2532,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'STOP_QUEUE') {
-    closeApiHelperTab();
-    stopKeepAlive();
-    queueRunToken++;
-    isQueueRunning = false;
-    runnerState.status = 'STOPPED';
-    const activeTabToClose = runnerState.activeTabId;
-    runnerState.activeTabId = null;
-    chrome.storage.local.set({ runnerState });
-    if (activeTabToClose) {
-      chrome.tabs.sendMessage(activeTabToClose, { action: 'STOP_WORKFLOW' }).catch(() => {});
-    }
-    chrome.tabs.query({ url: ['*://fasih-sm.bps.go.id/*', '*://*.bps.go.id/*'] }, (tabs) => {
-      if (tabs && tabs.length > 0) {
-        for (const t of tabs) {
-          chrome.tabs.sendMessage(t.id, { action: 'STOP_WORKFLOW' }).catch(() => {});
-        }
-      }
-    });
-    chrome.storage.local.get(['fasihQueue'], (data) => {
-      const q = data.fasihQueue || [];
-      let changed = false;
-      for (let i = 0; i < q.length; i++) {
-        if (q[i] && (q[i].status === 'OPENING_TAB' || q[i].status === 'PROCESSING' || q[i].status === 'PAUSED')) {
-          q[i].status = 'PENDING';
-          q[i].error = 'Diberhentikan (Stop)';
-          changed = true;
-        }
-      }
-      if (changed) {
-        chrome.storage.local.set({ fasihQueue: q });
-        broadcastToPopup({ action: 'QUEUE_UPDATED', queue: q });
-      }
-    });
-    broadcastToPopup({ action: 'QUEUE_STOPPED' });
-    sendResponse({ success: true });
-    return false;
+    (async () => {
+      await stopQueueExecution('Diberhentikan oleh pengguna dari pop-up');
+      syncWithWhatsAppRemote({ force: true }).catch(() => {});
+      sendResponse({ success: true });
+    })();
+    return true;
   }
 
     // ---------- Backup & restore menu API ----------

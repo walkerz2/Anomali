@@ -509,6 +509,15 @@
     const plan = { assignmentId: row.assignmentId, code: asg.code_identity, status: asg.assignment_status_alias,
       version: asg.submit_version_code, nChanges: changes.length, changes };
     if (!changes.length) return { ...plan, ok: true, dryRun, noChange: true };
+
+    // Cek apakah assignment berstatus Approved
+    const isApproved = /APPROV/i.test(String(asg.assignment_status_alias || '')) ||
+                       /APPROV/i.test(String(asg.status || '')) ||
+                       /APPROV/i.test(String(asg.assignment_status || ''));
+    if (isApproved && !dryRun) {
+      return { ...plan, ok: false, needRevoke: true, error: 'Assignment berstatus ' + (asg.assignment_status_alias || 'Approved') + '. Perlu di-Revoke terlebih dahulu.' };
+    }
+
     if (changes.length) doc.updatedAt = new Date().toISOString();
 
     const backup = dryRun ? null : { assignmentId: row.assignmentId, code: asg.code_identity, version: asg.submit_version_code,

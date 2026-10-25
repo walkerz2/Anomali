@@ -326,6 +326,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const id = val(row, idKey);
         let link = val(row, linkKey);
         if (!/^https?:\/\//i.test(link) && UUID.test(id)) link = `https://fasih-sm.bps.go.id/app/assignment-detail/${id.match(UUID)[0]}`;
+        link = String(link || '').trim().replace(/[\r\n\t]/g, '');
         const apiValues = {};
         valueCols.forEach(c => { const v = val(row, c); if (v !== '') apiValues[c.trim()] = v; });
         const apiRemarks = {};
@@ -376,7 +377,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     return rows
       .filter(row => Object.values(row).some(v => String(v).trim() !== ''))
       .map((row, idx) => {
-        const link = val(row, linkKey);
+        let link = val(row, linkKey);
+        const idAssignment = val(row, K.id);
+        const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+        if (!/^https?:\/\//i.test(link) && UUID.test(idAssignment)) {
+          const sp = (periodeInput && periodeInput.value.trim()) || 'fd68e454-ba45-4b85-8205-f3bf777ded24';
+          link = `https://fasih-sm.bps.go.id/app/assignment/${sp}/${idAssignment.match(UUID)[0]}/edit`;
+        }
+        link = String(link || '').trim().replace(/[\r\n\t]/g, '');
         let error = /^https?:\/\//i.test(link) ? null : 'link_fasih_sm kosong / tidak valid';
         let kbliTask = null;
 
@@ -388,8 +396,6 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (!error && kbliAwal === kbliTujuan) error = 'kbli_awal = kbli_tujuan (tidak ada perubahan). Gunakan menu #DC_00.';
           kbliTask = { kbliAwal, kbliTujuan, gantiKbli: true };
         }
-
-        const idAssignment = val(row, K.id);
         return {
           index: idx,
           excelRowNum: idx + 1,
@@ -1391,6 +1397,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     return ['status-pending', 'Pending'];
   }
 
+  let lastActiveQueueIndex = 0;
+
   function renderQueueTable() {
     const totalAll = allRows.length || queue.length;
     const { startRow, endRow, isFiltered } = getRowRangeBounds(totalAll);
@@ -1400,7 +1408,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       queueTableBody.innerHTML = '<tr><td colspan="3" class="empty-state">Belum ada file Excel diimpor</td></tr>';
       return;
     }
-    queueTableBody.innerHTML = queue.map((item, idx) => {
+
+    // Virtual windowing untuk performa tinggi saat antrian memiliki ribuan baris (mis. 6000 - 7000 baris)
+    const MAX_RENDER = 100;
+    let renderItems = queue;
+    let offsetIdx = 0;
+    let isWindowed = false;
+
+    if (queue.length > MAX_RENDER) {
+      isWindowed = true;
+      const cur = lastActiveQueueIndex || 0;
+      offsetIdx = Math.max(0, Math.min(cur - 20, queue.length - MAX_RENDER));
+      renderItems = queue.slice(offsetIdx, offsetIdx + MAX_RENDER);
+    }
+
+    const rowsHtml = renderItems.map((item, localIdx) => {
+      const idx = offsetIdx + localIdx;
       const [cls, label] = badgeFor(item);
       const rowNum = item.excelRowNum || (idx + 1);
       const apiKeys = item.apiValues ? Object.keys(item.apiValues) : [];
@@ -1424,6 +1447,15 @@ document.addEventListener('DOMContentLoaded', async () => {
           <td><span class="status-badge-table ${cls}">${label}</span></td>
         </tr>`;
     }).join('');
+
+    if (isWindowed) {
+      const headerNote = offsetIdx > 0 ? `<tr><td colspan="3" class="empty-state" style="padding:6px; font-size:11px; background:rgba(0,0,0,0.02);">▲ ... ${offsetIdx} baris sebelumnya disembunyikan ...</td></tr>` : '';
+      const remaining = queue.length - (offsetIdx + renderItems.length);
+      const footerNote = remaining > 0 ? `<tr><td colspan="3" class="empty-state" style="padding:6px; font-size:11px; background:rgba(0,0,0,0.02);">▼ ... ${remaining} baris berikutnya disembunyikan ...</td></tr>` : '';
+      queueTableBody.innerHTML = headerNote + rowsHtml + footerNote;
+    } else {
+      queueTableBody.innerHTML = rowsHtml;
+    }
   }
 
   function updateProgressUI() {
@@ -1585,6 +1617,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   chrome.runtime.onMessage.addListener((request) => {
     if (request.action === 'QUEUE_UPDATED') {
       queue = request.queue;
+      if (request.index !== undefined) {
+        lastActiveQueueIndex = request.index;
+      }
       btnExportExcel.disabled = !queue.length;
       renderQueueTable();
       updateProgressUI();
