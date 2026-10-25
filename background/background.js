@@ -1372,9 +1372,11 @@ chrome.tabs.onUpdated.addListener(async (tId, c, tab) => {
     const url = (tab && tab.url) || c.url || '';
     if (isSsoOrLoginUrl(url)) {
       try {
-        const stored = await chrome.storage.local.get(['runnerOptions']).catch(() => null);
+        const stored = await chrome.storage.local.get(['runnerOptions', 'runnerState']).catch(() => null);
         const opts = stored?.runnerOptions || runnerState.options || {};
-        if (opts.autoSsoLogin !== false) {
+        const rState = stored?.runnerState || runnerState || {};
+        // HANYA kirim trigger login SSO jika bot sedang RUNNING (Mulai Otomasi sudah ditekan)
+        if (opts.autoSsoLogin !== false && rState.status === 'RUNNING') {
           chrome.tabs.sendMessage(tId, { action: 'TRIGGER_SSO_LOGIN', options: opts }).catch(() => {});
         }
       } catch (_) {}

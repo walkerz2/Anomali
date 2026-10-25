@@ -5178,9 +5178,13 @@
     if (executionState.isRunning || isSsoLoginInProgress) return;
 
     try {
-      const data = await chrome.storage.local.get(['runnerOptions', 'fasihOptions']).catch(() => null);
+      const data = await chrome.storage.local.get(['runnerOptions', 'fasihOptions', 'runnerState']).catch(() => null);
       const opts = data?.runnerOptions || data?.fasihOptions || {};
+      const rState = data?.runnerState || {};
+
+      // HANYA aktif jika opsi autoSsoLogin dicentang DAN runner sedang RUNNING (tombol Mulai Otomasi sudah ditekan)
       if (opts.autoSsoLogin === false) return;
+      if (rState.status !== 'RUNNING') return;
 
       // Tunggu hingga tombol SSO Eksternal atau input password muncul (polling sampai 8 detik jika halaman login)
       let foundElement = findSsoPasswordInput() || findSsoEksternalButton() || findSessionExpiredElement();
