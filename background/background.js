@@ -1323,7 +1323,7 @@ const ringkasPerubahan = (changes) => (changes || []).slice(0, 8)
   ((changes || []).length > 8 ? ` (+${changes.length - 8} lagi)` : '');
 
 // Hasil: { done: true } bila baris selesai di sini (uji coba / gagal), atau { done: false, note } untuk lanjut Kirim lewat form
-async function runApiStep(item, index) {
+async function runApiStep(item, index, { skipApprovedCheck = false } = {}) {
   const dryRun = runnerState.options.apiDryRun !== false;
   const id = assignmentIdOf(item);
   if (!id) { await updateItemStatus(index, 'FAILED', 'assignment_id tidak terbaca dari link / kolom'); return { done: true }; }
@@ -1332,7 +1332,7 @@ async function runApiStep(item, index) {
   const row = { assignmentId: id, values: item.apiValues || {}, remarks: item.apiRemarks || {}, namaUsaha: item.namaUsahaExcel || item.nama_usaha || '' };
   const autoNote = item.apiNoteCode || '#1';
   const call = async (dr) => {
-    try { return await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote }); }
+    try { return await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote, skipApprovedCheck }); }
     catch (e) { return { status: 'ERROR', error: e.message || String(e) }; }
   };
   let res = await call(dryRun);
@@ -1486,16 +1486,20 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
         }
 
         if (!isRevOk) {
-          await updateItemStatus(index, 'FAILED', `Gagal Auto Revoke: ${(revRes && (revRes.result?.error || revRes.error)) || 'Tombol Revoke tidak ditemukan'}`);
-          return { tabIdToClose: revokeTab.id };
+          // Tombol Revoke tidak ada di toolbar kanan bawah (baik di /edit maupun reviewUrl).
+          // Artinya: Dokumen BELUM di-Approve (sudah terbuka untuk langsung diedit)!
+          console.log('[FASIH BG] Tombol Revoke tidak ditemukan: assignment belum di-Approve. Langsung melanjutkan penyimpanan variabel via API...');
+          await updateItemStatus(index, 'PROCESSING', 'Assignment belum di-Approve. Menyimpan perubahan variabel via API...');
+        } else {
+          await updateItemStatus(index, 'PROCESSING', 'Revoke berhasil! Menyimpan perubahan variabel via API...');
         }
 
-        await updateItemStatus(index, 'PROCESSING', 'Revoke berhasil! Menyimpan perubahan variabel via API...');
-        pre = await runApiStep(item, index);
+        // Jalankan penyimpanan variabel via API (skipApprovedCheck: true karena tab sudah diverifikasi langsung)
+        pre = await runApiStep(item, index, { skipApprovedCheck: true });
         if (pre.done) {
           return { tabIdToClose: revokeTab.id };
         }
-        apiNote = (pre.note || '') + ' (setelah Revoke)';
+        apiNote = (pre.note || '') + (isRevOk ? ' (setelah Revoke)' : '');
 
         if (!runnerState.options.autoSubmitSurvey) {
           await updateItemStatus(index, 'SUCCESS', `Tersimpan lewat API (tanpa Kirim form) | ${apiNote}`);

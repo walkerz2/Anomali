@@ -4965,7 +4965,7 @@
       const api = self.TUNTAS_API;
       if (!api) { sendResponse({ status: 'ERROR', error: 'Mesin API belum dimuat — refresh halaman FASIH' }); return false; }
       const onBackup = (backup) => chrome.runtime.sendMessage({ action: 'API_BACKUP_SAVE', backup }).catch(() => {});
-      const job = request.action === 'API_APPLY' ? api.applyRow(request.row, { dryRun: request.dryRun !== false, autoNote: request.autoNote ?? '#1', onBackup })
+      const job = request.action === 'API_APPLY' ? api.applyRow(request.row, { dryRun: request.dryRun !== false, autoNote: request.autoNote ?? '#1', onBackup, skipApprovedCheck: Boolean(request.skipApprovedCheck) })
         : request.action === 'API_RESTORE' ? api.restore(request.backup, { dryRun: request.dryRun !== false })
         : request.action === 'API_LIST_VARS' ? api.listVars(request.assignmentId)
         : api.findKeys(request.assignmentId, request.query || '');

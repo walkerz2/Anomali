@@ -246,6 +246,7 @@ Server FASIH-SM BPS sering kali mengalami lonjakan beban respon (*traffic spikes
 ### 6.4 Auto Revoke & Auto Approve
 - Jika assignment berstatus `Approved` saat hendak diperbaiki (sehingga tombol Edit terkunci), bot otomatis mencari dan menekan tombol **Revoke** di pojok kanan bawah toolbar, mengonfirmasi modal revoke, memuat ulang form, melakukan perbaikan, submit ulang, dan melakukan **Approve** kembali.
 - **Mode Ubah Variabel (API)**: Memeriksa status assignment secara proaktif (`asg.assignment_status_alias`). Jika assignment sudah berstatus `Approved`, bot membuka tab review/edit untuk mengeksekusi Auto Revoke terlebih dahulu sebelum menulis perubahan via REST API FASIH, lalu memverifikasi form, melakukan submit visual, dan auto-approve kembali.
+- **Fallback Tanpa Tombol Revoke (Belum Approved)**: Jika tombol Revoke tidak ditemukan di toolbar (kuesioner ternyata belum di-Approve, misalnya berstatus draf atau menunggu approval), bot tidak menandai gagal melainkan secara cerdas langsung melanjutkan penyimpanan perubahan variabel via API dan pengiriman formulir.
 
 ### 6.5 Skalabilitas Dataset Masif (6.000–7.000+ Baris) & Virtual Windowing
 - **Pembersihan & Sanitasi URL**: Seluruh link dan ID kuesioner dibersihkan dari whitespace, tab, dan newline (`\r\n\t`) yang sering muncul dari copy-paste Excel. Jika link kosong namun `assignment_id` valid, ekstensi otomatis menyusun link edit standar FASIH.

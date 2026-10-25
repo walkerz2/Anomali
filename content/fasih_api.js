@@ -452,7 +452,7 @@
    * Terapkan satu baris Excel.
    * row = { assignmentId, values: { dataKey: sel }, remarks: { dataKey: teks } }
    */
-  async function applyRow(row, { dryRun = true, autoNote = '#1', onBackup = null } = {}) {
+  async function applyRow(row, { dryRun = true, autoNote = '#1', onBackup = null, skipApprovedCheck = false } = {}) {
     const asg = await getAssignment(row.assignmentId);
     const S = (await loadSchema(asg)).map;
     const doc = JSON.parse(asg.data);
@@ -510,11 +510,12 @@
       version: asg.submit_version_code, nChanges: changes.length, changes };
     if (!changes.length) return { ...plan, ok: true, dryRun, noChange: true };
 
-    // Cek apakah assignment berstatus Approved
-    const isApproved = /APPROV/i.test(String(asg.assignment_status_alias || '')) ||
-                       /APPROV/i.test(String(asg.status || '')) ||
-                       /APPROV/i.test(String(asg.assignment_status || ''));
-    if (isApproved && !dryRun) {
+    // Cek apakah assignment berstatus Approved secara ketat (bukan WAITING_APPROVAL / MENUNGGU)
+    const alias = String(asg.assignment_status_alias || '').trim().toUpperCase();
+    const isTrulyApproved = !skipApprovedCheck &&
+                            (alias.includes('APPROVED') || alias.includes('DISETUJUI')) &&
+                            !alias.includes('WAITING') && !alias.includes('NEED') && !alias.includes('MENUNGGU');
+    if (isTrulyApproved && !dryRun) {
       return { ...plan, ok: false, needRevoke: true, error: 'Assignment berstatus ' + (asg.assignment_status_alias || 'Approved') + '. Perlu di-Revoke terlebih dahulu.' };
     }
 
