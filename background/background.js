@@ -493,11 +493,18 @@ async function sendWebhookStatusNotification({
     const pcName = String(opts.pcName || 'PC 1').trim() || 'PC 1';
     const store = await chrome.storage.local.get(['fasihQueue', 'runnerState']);
     const queue = store.fasihQueue || [];
+    const state = store.runnerState || runnerState;
     const total = queue.length;
     const done = queue.filter((i) => ['SUCCESS', 'SKIPPED', 'FAILED', 'INVALID', 'DRYRUN'].includes(i.status)).length;
     const successCount = queue.filter((i) => i.status === 'SUCCESS').length;
     const failedCount = queue.filter((i) => i.status === 'FAILED').length;
     const skippedCount = queue.filter((i) => i.status === 'SKIPPED').length;
+
+    const curIndex = (state && state.currentIndex !== undefined && state.currentIndex !== null) ? state.currentIndex : null;
+    const curItem = (curIndex !== null && queue[curIndex]) ? queue[curIndex] : null;
+    const currentUsaha = curItem ? (curItem.nama_usaha || `Baris #${curIndex + 1}`) : '-';
+    const currentLink = curItem ? (curItem.link_fasih_sm || curItem.link || '-') : '-';
+    const rowNum = curItem ? (curItem.excelRowNum || (curIndex !== null ? curIndex + 1 : '-')) : (curIndex !== null ? curIndex + 1 : '-');
 
     const now = new Date();
     const waktuLokal = now.toLocaleString('id-ID', { timeZone: 'Asia/Makassar', hour12: false }) + ' WITA';
@@ -527,6 +534,12 @@ async function sendWebhookStatusNotification({
 
     const formattedMessage = lines.join('\n');
 
+    const statusDesc = status === 'PAUSED'
+      ? `⏸️ Antrian Dijeda (${details || 'Tombol Jeda ditekan'})`
+      : status === 'STOPPED'
+      ? `⏹️ Antrian Dihentikan (${details || 'Tombol Stop ditekan'})`
+      : `🎉 Seluruh antrian selesai (${done}/${total})`;
+
     const payload = {
       event,
       app: 'TUNTAS SE2026',
@@ -540,7 +553,13 @@ async function sendWebhookStatusNotification({
       gagal: failedCount,
       dilewati: skippedCount,
       total_antrian: total,
-      keterangan: details || '',
+      keterangan: details || statusDesc,
+      // Fallback jika template WhatsApp n8n masih memformat sebagai error:
+      error: statusDesc,
+      no_baris: rowNum,
+      nama_usaha: currentUsaha,
+      link_fasih_sm: currentLink,
+      kategori_error: status,
       message: formattedMessage,
       text: formattedMessage
     };
@@ -561,6 +580,12 @@ async function sendWebhookStatusNotification({
         const u = new URL(webhookUrl);
         u.searchParams.set('event', payload.event);
         u.searchParams.set('status', payload.status);
+        u.searchParams.set('pc', payload.pc);
+        u.searchParams.set('pc_name', payload.pc_name);
+        u.searchParams.set('error', payload.error);
+        u.searchParams.set('nama_usaha', payload.nama_usaha);
+        u.searchParams.set('no_baris', String(payload.no_baris));
+        u.searchParams.set('link_fasih_sm', payload.link_fasih_sm);
         u.searchParams.set('message', payload.message);
         response = await fetch(u.toString(), { method: 'GET' });
       } catch (_) {}
