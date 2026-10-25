@@ -824,6 +824,44 @@ async function stopQueueExecution(details = 'Otomasi dihentikan total.') {
   return { success: true };
 }
 
+// Ulangi baris yang berstatus FAILED dalam antrian (bisa dipanggil dari popup atau WhatsApp remote)
+async function retryFailedQueueItems(options = null) {
+  try {
+    const data = await chrome.storage.local.get(['fasihQueue']);
+    const queue = data.fasihQueue || [];
+    let resetCount = 0;
+    let firstResetIndex = -1;
+    queue.forEach((item, idx) => {
+      if (item && item.status === 'FAILED') {
+        item.status = 'PENDING';
+        item.error = null;
+        if (firstResetIndex === -1) firstResetIndex = idx;
+        resetCount++;
+      }
+    });
+
+    if (resetCount === 0) {
+      return { success: false, resetCount: 0, message: 'Tidak ada item yang berstatus gagal.' };
+    }
+
+    runnerState.consecutiveFailures = 0;
+    runnerState.status = 'RUNNING';
+    runnerState.currentIndex = firstResetIndex !== -1 ? firstResetIndex : 0;
+    if (options) {
+      runnerState.options = { ...runnerState.options, ...options };
+    }
+    await chrome.storage.local.set({ fasihQueue: queue, runnerState });
+    broadcastToPopup({ action: 'QUEUE_UPDATED', queue });
+    broadcastToPopup({ action: 'QUEUE_RESUMED' });
+
+    startQueueRunner(runnerState.currentIndex, { forceRestart: true });
+    return { success: true, resetCount, startIndex: runnerState.currentIndex };
+  } catch (err) {
+    console.error('[TUNTAS] Gagal mengulang baris gagal:', err);
+    return { success: false, error: err.message || String(err) };
+  }
+}
+
 async function handleRemoteWhatsAppCommand(cmd) {
   if (!cmd || !cmd.action || cmd.action === 'NONE') return;
 
@@ -868,6 +906,14 @@ async function handleRemoteWhatsAppCommand(cmd) {
       details: '⏹️ Otomasi dihentikan jarak jauh via WhatsApp (#STOP)'
     });
     await stopQueueExecution('Dihentikan jarak jauh via WhatsApp (#STOP)');
+    setTimeout(() => syncWithWhatsAppRemote({ force: true }), 500);
+  } else if (action === 'RETRY_FAILED' || action === 'ULANG' || action === 'RETRY' || action === 'ULANGI_GAGAL') {
+    broadcastToPopup({
+      action: 'UPDATE_STEP',
+      step: 'REMOTE_WA',
+      details: '🔄 Mengulang baris gagal jarak jauh via WhatsApp (#ULANG)'
+    });
+    await retryFailedQueueItems();
     setTimeout(() => syncWithWhatsAppRemote({ force: true }), 500);
   } else if (action === 'ADD_QUEUE') {
     const rawLink = String(cmd.link || '').trim();
@@ -2580,35 +2626,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === 'RETRY_FAILED_QUEUE') {
     (async () => {
-      const data = await chrome.storage.local.get(['fasihQueue']);
-      const queue = data.fasihQueue || [];
-      let resetCount = 0;
-      let firstResetIndex = -1;
-      queue.forEach((item, idx) => {
-        if (item.status === 'FAILED') {
-          item.status = 'PENDING';
-          item.error = null;
-          if (firstResetIndex === -1) firstResetIndex = idx;
-          resetCount++;
-        }
-      });
-
-      if (resetCount === 0) {
-        sendResponse({ success: false, message: 'Tidak ada item yang berstatus gagal.' });
-        return;
-      }
-
-      runnerState.consecutiveFailures = 0;
-      runnerState.status = 'RUNNING';
-      runnerState.currentIndex = firstResetIndex !== -1 ? firstResetIndex : 0;
-      if (request.options) {
-        runnerState.options = { ...runnerState.options, ...request.options };
-      }
-      await chrome.storage.local.set({ fasihQueue: queue, runnerState });
-      broadcastToPopup({ action: 'QUEUE_UPDATED', queue });
-
-      processQueueItem(queue, runnerState.currentIndex);
-      sendResponse({ success: true, resetCount, startIndex: runnerState.currentIndex });
+      const res = await retryFailedQueueItems(request.options);
+      sendResponse(res);
     })();
     return true;
   }

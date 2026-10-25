@@ -183,7 +183,8 @@ Untuk setiap baris pada file Excel:
    - **Notifikasi Status Otomatis ke WhatsApp (Selesai, Jeda, Stop)**: Mengirim pesan terformat otomatis ke WhatsApp melalui Webhook n8n saat antrian selesai total, dijeda, atau dihentikan. Stempel waktu dibakukan ke Waktu Indonesia Tengah (**WITA / UTC+8**).
    - **WhatsApp Two-Way Remote & Dynamic Cloud Queue**: Memungkinkan Anda memantau seluruh PC yang sedang bekerja dan mengendalikannya secara nirkabel langsung dari obrolan WhatsApp melalui n8n:
      - **Monitoring Status Real-Time**: Perintah `#STATUS` untuk melihat progress semua PC (jumlah baris selesai, status server, nama usaha yang sedang diproses), atau `#STATUS PC 1` untuk memeriksa PC tertentu.
-     - **Remote Control (Jeda, Lanjut, Stop)**: Perintah `#JEDA`, `#LANJUT`, atau `#STOP` untuk mengontrol semua PC sekaligus atau unit tertentu (misal `#JEDA PC 2`, `#LANJUT PC 1`).
+     - **Remote Control (Jeda, Lanjut, Stop, Ulangi Gagal)**: Perintah #JEDA, #LANJUT, #STOP, atau #ULANG untuk mengontrol semua PC sekaligus atau unit tertentu (misal #JEDA PC 2, #LANJUT PC 1, #ULANG 7309_0). Perintah #ULANG akan otomatis memulihkan seluruh baris yang berstatus FAILED kembali ke PENDING dan melanjutkan eksekusi.
+     - **Pembersihan Monitoring**: Perintah #BERSIHKAN untuk mereset cache monitoring PC lama yang sudah offline.
      - **Dynamic Cloud Queue**: Perintah `#TAMBAH [link_fasih]` (contoh: `#TAMBAH https://fasih-sm.bps.go.id/app/assignment-detail/...`) untuk menyisipkan link kuesioner baru ke dalam antrian secara langsung tanpa harus membuka laptop atau mengunggah ulang file Excel!
      - **Bantuan Perintah**: Ketik `#QUERY` atau `#HELP` di WhatsApp untuk melihat daftar perintah bot lengkap beserta formatnya.
 5. **Mulai Eksekusi**:
