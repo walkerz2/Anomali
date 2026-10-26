@@ -250,7 +250,7 @@
             <input type="text" id="pcNameInput" value="PC 1" placeholder="Contoh: PC 1">
           </div>
           <div class="form-group">
-            <label for="webhookUrlInput" title="URL Webhook n8n untuk menerima notifikasi ketika terjadi error / gagal remark / gagal koneksi">URL Webhook Notifikasi Error:</label>
+            <label for="webhookUrlInput" title="URL Webhook n8n untuk menerima notifikasi status antrian (Jeda, Stop, Selesai)">URL Webhook Notifikasi Status (Jeda / Stop / Selesai):</label>
             <div class="webhook-input-row">
               <input type="url" id="webhookUrlInput" value="https://n8n7309.online/webhook/notif-anomali" placeholder="https://n8n7309.online/webhook/notif-anomali" spellcheck="false">
               <button id="btnTestWebhook" class="btn-ghost btn-test-webhook" type="button" title="Kirim pesan tes ke URL Webhook">Tes</button>
@@ -280,7 +280,7 @@
           </label>
           <label class="checkbox-label">
             <input type="checkbox" id="checkEnableWebhook" checked>
-            <span>Kirim notifikasi ke Webhook saat terjadi error / gagal remark / koneksi</span>
+            <span><b>Notifikasi Webhook</b> — Aktifkan notifikasi status (Jeda, Stop, Selesai) ke Webhook</span>
           </label>
           <label class="checkbox-label" title="Kirim notifikasi otomatis ke WhatsApp saat seluruh antrian kuesioner telah selesai diproses">
             <input type="checkbox" id="checkNotifyOnComplete" checked>

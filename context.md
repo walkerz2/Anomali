@@ -1,7 +1,7 @@
 # CONTEXT.MD — TUNTAS SE2026 (Tracking dan Tindak Lanjut Anomali Sensus)
 
 > **Dokumen Konteks Proyek & Panduan Teknis Komprehensif**  
-> Terakhir diperbarui: 26 Oktober 2026, 13:25 WITA (Asia/Makassar / UTC+8)  
+> Terakhir diperbarui: 26 Oktober 2026, 16:15 WITA (Asia/Makassar / UTC+8)  
 > Zona Waktu Sistem: Waktu Indonesia Tengah (WITA / Asia/Makassar / UTC+8)
 
 ---
@@ -239,12 +239,13 @@ Server FASIH-SM BPS sering kali mengalami lonjakan beban respon (*traffic spikes
 
 Ekstensi dapat dihubungkan ke workflow automation n8n (`https://n8n7309.online` atau instance n8n kustom) untuk notifikasi dan kendali dua arah dari WhatsApp.
 
-### 7.1 Webhook Notifikasi Dinamis
+### 7.1 Webhook Notifikasi Status Eksklusif (Jeda, Stop, Selesai)
 - Endpoint URL dapat disesuaikan langsung dari opsi pengaturan pada popup (`runnerOptions.webhookUrl`).
-- Mengirimkan notifikasi selektif:
-  - Saat antrian **Selesai Total (ALL COMPLETED)** (rekapitulasi sukses, gagal, dilewati).
-  - Saat bot **Dijeda (PAUSE)** atau **Dihentikan (STOP)**.
-  - Saat terjadi error kritis / kendala fatal server (bukan error wajar seperti data sudah diperbaiki).
+- **Fokus Status Makro**: Notifikasi Webhook difokuskan khusus untuk perubahan status antrian operasional dan tidak meneruskan pesan untuk galat/error baris individu (error baris dicatat lokal di tabel):
+  - Saat antrian **Selesai Total (ALL COMPLETED)** (rekapitulasi sukses, gagal, dilewati per PC).
+  - Saat bot **Dijeda (PAUSE)**, baik oleh pengguna, perintah remote `#JEDA`, maupun otomatis via Circuit Breaker (3 kegagalan server berturut-turut).
+  - Saat bot **Dihentikan (STOP)**, baik manual maupun perintah remote `#STOP`.
+- **Independensi per PC**: Setiap satu PC yang mengalami kondisi Jeda, Stop, atau Selesai akan seketika mengirimkan notifikasi terformat lengkap dengan identitas nama PC, menu aktif, dan progres terkini.
 
 ### 7.2 Two-Way WhatsApp Remote Control & Dynamic Cloud Queue
 - Endpoint sinkronisasi status & perintah dua arah dinamis (`runnerOptions.syncWebhookUrl`).

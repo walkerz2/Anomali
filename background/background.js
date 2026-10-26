@@ -599,10 +599,14 @@ async function sendWebhookStatusNotification({
       title = 'ANTRIAN DIHENTIKAN';
     }
 
+    const mode = (curItem && curItem.mode) || opts.mode || (runnerState && runnerState.options && runnerState.options.mode) || 'DC0';
+    const modeLabel = mode === 'API' ? 'Ubah Variabel (API)' : (mode === 'NTB' ? 'Validasi NTB' : (mode === 'DC1' ? '#DC_01 (Ganti KBLI)' : '#DC_00 (Tanpa Perubahan)'));
+
     const lines = [
       `${icon} [TUNTAS SE2026 - ${title} | ${pcName}]`,
       `💻 PC: ${pcName}`,
       `⚡ Status: *${status}*`,
+      `📋 Menu: ${modeLabel}`,
       `📈 Progres: *${done} / ${total}*`,
       `✅ Sukses: ${successCount} | ❌ Gagal: ${failedCount}${skippedCount ? ` | ⏩ Dilewati: ${skippedCount}` : ''}`,
       details ? `📝 Keterangan: ${details}` : null,
@@ -698,6 +702,7 @@ async function pauseQueueExecution(details = 'Otomasi dijeda.') {
     status: 'PAUSED',
     details
   }).catch(() => {});
+  syncWithWhatsAppRemote({ force: true }).catch(() => {});
   return { success: true };
 }
 
@@ -820,6 +825,7 @@ async function stopQueueExecution(details = 'Otomasi dihentikan total.') {
     status: 'STOPPED',
     details
   }).catch(() => {});
+  syncWithWhatsAppRemote({ force: true }).catch(() => {});
 
   return { success: true };
 }
@@ -1262,19 +1268,13 @@ async function sendWebhookErrorNotification({
 function checkCircuitBreaker() {
   if (runnerState.consecutiveFailures >= 3 && runnerState.status === 'RUNNING') {
     console.warn(`[FASIH BG] Circuit Breaker aktif! ${runnerState.consecutiveFailures} kegagalan berturut-turut.`);
-    runnerState.status = 'PAUSED';
-    chrome.storage.local.set({ runnerState });
-    const cbMessage = '⚠️ Circuit Breaker: Terdeteksi 3 kegagalan berturut-turut (server FASIH down / koneksi timeout). Otomasi dijeda otomatis agar sisa antrian aman.';
+    const cbMessage = '🚨 Circuit Breaker: Terdeteksi 3 kegagalan berturut-turut (server FASIH down / koneksi timeout). Otomasi dijeda otomatis agar sisa antrian aman.';
     broadcastToPopup({
       action: 'CIRCUIT_BREAKER_TRIGGERED',
       consecutiveFailures: runnerState.consecutiveFailures,
       message: cbMessage
     });
-    sendWebhookErrorNotification({
-      event: 'CIRCUIT_BREAKER_TRIGGERED',
-      index: runnerState.currentIndex,
-      errorMsg: cbMessage
-    });
+    pauseQueueExecution(cbMessage).catch(() => {});
   }
 }
 
@@ -1336,19 +1336,8 @@ async function updateItemStatus(index, itemStatus, errorMsg = '') {
       queue
     });
 
-    // Kirim notifikasi ke Webhook jika error memenuhi syarat (ekstensi tidak jalan atau kandas proses remark)
-    const isFormOpenFailure = itemStatus === 'SKIPPED' && /formulir.*tidak terbuka/i.test(String(errorMsg || ''));
-    if (itemStatus === 'FAILED' || isFormOpenFailure) {
-      if (shouldSendWebhookNotification('ERROR_NOTIFICATION', errorMsg)) {
-        sendWebhookErrorNotification({
-          event: 'ERROR_NOTIFICATION',
-          index,
-          item: queue[index],
-          totalQueue: queue.length,
-          errorMsg: errorMsg || 'Terjadi kegagalan saat memproses baris antrian.'
-        });
-      }
-    }
+    // Notifikasi Webhook difokuskan khusus untuk status makro antrian (Jeda, Stop, Selesai).
+    // Error atau galat pada baris kuesioner dicatat lokal pada tabel antrian tanpa membanjiri notifikasi pesan.
   }
 }
 
