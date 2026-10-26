@@ -1,7 +1,7 @@
 ---
 name: git-safe-workflow
 description: >-
-  Pedoman dan alur kerja Git yang aman agar tidak pernah melakukan push langsung ke branch main atau master. Gunakan skill ini setiap kali melakukan perubahan kode, membuat commit, membuat branch fitur/bugfix baru (misal: feat/*, fix/*), melakukan pengujian sintaks, dan hanya melakukan push ke branch kerja sampai pengguna memberikan persetujuan eksplisit untuk merge ke main.
+  Pedoman dan alur kerja Git yang aman agar tidak pernah melakukan push langsung ke branch main atau master. Gunakan skill ini setiap kali melakukan perubahan kode, membuat commit, membuat branch fitur/bugfix baru (misal: feat/*, fix/*), melakukan pengujian sintaks, dan hanya melakukan push ke branch kerja sampai pengguna memberikan persetujuan eksplisit untuk merge ke main, dan langsung menghapus branch fitur tersebut secara otomatis (auto-cleanup lokal & remote) begitu di-push ke main.
 ---
 
 # Git Safe Workflow (No Direct Push to Main)
@@ -82,9 +82,9 @@ Informasikan kepada pengguna:
 
 ---
 
-## 4. 🔀 Prosedur Penggabungan (Merge ke Main)
+## 4. 🔀 Prosedur Penggabungan & Auto-Cleanup (Merge & Delete Branch)
 
-Hanya lakukan prosedur ini **JIKA PENGGUNA SECARA EKSPLISIT MEMINTA**:
+Hanya lakukan prosedur ini **JIKA PENGGUNA SECARA EKSPLISIT MEMINTA** (misal: *"silahkan push ke main"*, *"merge dan push"*, dsb):
 
 1. Pindah ke branch `main`:
    ```powershell
@@ -98,12 +98,21 @@ Hanya lakukan prosedur ini **JIKA PENGGUNA SECARA EKSPLISIT MEMINTA**:
    ```powershell
    git merge <nama-branch-kerja>
    ```
-4. Verifikasi sintaks sekali lagi:
+4. Verifikasi integritas QA:
    ```powershell
-   node -c background/background.js popup/popup.js
+   node scripts/verify-all.js
    ```
 5. Push ke `main`:
    ```powershell
    git push origin main
    ```
-6. Beritahukan pengguna bahwa perubahan sudah berada di `main`.
+6. **Auto-Cleanup (Wajib Langsung Hapus Branch Fitur)**:
+   Setelah push ke `main` berhasil, agen **WAJIB LANGSUNG MENGHAPUS** branch fitur tersebut baik secara lokal maupun remote agar repositori selalu bersih dan rapi:
+   ```powershell
+   # Hapus branch lokal
+   git branch -d <nama-branch-kerja>
+
+   # Hapus branch remote di GitHub
+   git push origin --delete <nama-branch-kerja>
+   ```
+7. Beritahukan pengguna bahwa perubahan sudah berada di `main` dan branch fitur telah otomatis dibersihkan secara tuntas.

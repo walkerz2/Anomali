@@ -1,7 +1,7 @@
 # CONTEXT.MD — TUNTAS SE2026 (Tracking dan Tindak Lanjut Anomali Sensus)
 
 > **Dokumen Konteks Proyek & Panduan Teknis Komprehensif**  
-> Terakhir diperbarui: 25 Oktober 2026, 22:45 WITA (Asia/Makassar / UTC+8)  
+> Terakhir diperbarui: 26 Oktober 2026, 13:25 WITA (Asia/Makassar / UTC+8)  
 > Zona Waktu Sistem: Waktu Indonesia Tengah (WITA / Asia/Makassar / UTC+8)
 
 ---
@@ -302,10 +302,11 @@ Disimpan di `chrome.storage.local` dengan struktur objek:
 
 Setiap agen AI dan pengembang yang bekerja pada repositori ini terikat pada standar ketat di [**`AGENTS.md`**](file:///d:/capek/Anomali/AGENTS.md):
 
-### 9.1 Git Safe Workflow (No Direct Push to Main)
+### 9.1 Git Safe Workflow & Auto-Cleanup (No Direct Push to Main)
 - **Dilarang keras** melakukan *commit* atau *push* langsung ke `main` secara otomatis.
 - Selalu buat branch fitur/fix baru (`feat/*`, `fix/*`), uji secara mandiri, dan push hanya ke branch kerja tersebut.
 - Merge ke `main` hanya boleh dieksekusi setelah mendapatkan persetujuan eksplisit dari pengguna.
+- **Auto-Cleanup**: Begitu diperintahkan push ke `main`, branch kerja wajib langsung dihapus seketika baik secara lokal maupun remote (`git branch -d` dan `git push origin --delete`).
 - Dipandu oleh skill: [`.agents/skills/git-safe-workflow/SKILL.md`](file:///d:/capek/Anomali/.agents/skills/git-safe-workflow/SKILL.md).
 
 ### 9.2 QA & Zero-Regression Guard

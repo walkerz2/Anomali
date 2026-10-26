@@ -1,12 +1,13 @@
 # Aturan Pengembangan & Git Workflow Proyek
 
-## 1. Larangan Push Langsung ke Branch Main
+## 1. Larangan Push Langsung ke Branch Main & Otomasi Pembersihan Branch
 - **DILARANG KERAS** melakukan commit atau push langsung ke branch `main` atau `master` secara otomatis.
 - Setiap kali ada bugfix, fitur baru, perbaikan, atau perubahan kode, agen WAJIB:
   1. Membuat branch kerja baru (misal: `fix/<nama-masalah>`, `feat/<nama-fitur>`).
   2. Melakukan commit dan push HANYA ke branch kerja tersebut.
   3. Menguji validitas sintaks (`node -c ...`) dan pengujian QA (`node scripts/verify-all.js`) sebelum commit.
   4. Melaporkan branch baru kepada pengguna dan menunggu instruksi atau konfirmasi eksplisit dari pengguna sebelum melakukan merge/push ke `main`.
+  5. **Auto-Cleanup Saat Merge/Push ke Main**: Begitu pengguna menginstruksikan push/merge ke `main`, agen wajib menggabungkan branch, memverifikasi QA (`node scripts/verify-all.js`), mempush ke `main`, dan **SEKETIKA MENGHAPUS branch fitur tersebut** baik secara lokal (`git branch -d <nama-branch>`) maupun remote (`git push origin --delete <nama-branch>`).
 
 ## 2. Jaminan Anti-Regresi & Kualitas Fitur (Zero-Regression Rule)
 - Setiap kali menambahkan fitur baru atau mengubah kode:
