@@ -551,14 +551,14 @@ async function sendWebhookStatusNotification({
       runnerState.options = { ...runnerState.options, ...storeOpts.runnerOptions };
     }
     const opts = storeOpts.runnerOptions || (runnerState && runnerState.options) || {};
-    if (!customUrl && opts.enableWebhook === false) {
+    if (!customUrl && (opts.enableWebhook === false || opts.notifyStatus === false)) {
       return { ok: false, skipped: true, reason: 'Webhook dinonaktifkan' };
     }
 
-    if (status === 'COMPLETED' && opts.notifyOnComplete === false) {
+    if (status === 'COMPLETED' && (opts.notifyOnComplete === false || opts.notifyStatus === false)) {
       return { ok: false, skipped: true, reason: 'Notifikasi selesai dinonaktifkan' };
     }
-    if ((status === 'PAUSED' || status === 'STOPPED') && opts.notifyOnPauseStop === false) {
+    if ((status === 'PAUSED' || status === 'STOPPED') && (opts.notifyOnPauseStop === false || opts.notifyStatus === false)) {
       return { ok: false, skipped: true, reason: 'Notifikasi jeda/stop dinonaktifkan' };
     }
 

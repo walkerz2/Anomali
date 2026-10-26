@@ -46,8 +46,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const waSyncBadge = $('waSyncBadge');
   const DEFAULT_WHATSAPP_SYNC_URL = 'https://n8n7309.online/webhook/tuntas-bot-sync';
   const btnTestWebhook = $('btnTestWebhook');
-    const checkNotifyOnComplete = $('checkNotifyOnComplete');
-    const checkNotifyOnPauseStop = $('checkNotifyOnPauseStop');
+  const checkNotifyStatus = $('checkNotifyStatus');
   const checkAutoSsoLogin = $('checkAutoSsoLogin');
   const checkKeepAlive = $('checkKeepAlive');
   const keepAliveStatus = $('keepAliveStatus');
@@ -748,9 +747,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       pcName: (pcNameInput && pcNameInput.value.trim()) || 'PC 1',
       enableWhatsAppRemote: checkEnableWhatsAppRemote ? checkEnableWhatsAppRemote.checked : true,
       whatsappSyncUrl: (whatsappSyncUrlInput && whatsappSyncUrlInput.value.trim()) || DEFAULT_WHATSAPP_SYNC_URL,
-      enableWebhook: Boolean((checkNotifyOnComplete && checkNotifyOnComplete.checked) || (checkNotifyOnPauseStop && checkNotifyOnPauseStop.checked)),
-      notifyOnComplete: checkNotifyOnComplete ? checkNotifyOnComplete.checked : true,
-      notifyOnPauseStop: checkNotifyOnPauseStop ? checkNotifyOnPauseStop.checked : true,
+      notifyStatus: checkNotifyStatus ? checkNotifyStatus.checked : true,
+      enableWebhook: checkNotifyStatus ? checkNotifyStatus.checked : true,
+      notifyOnComplete: checkNotifyStatus ? checkNotifyStatus.checked : true,
+      notifyOnPauseStop: checkNotifyStatus ? checkNotifyStatus.checked : true,
       webhookUrl: (webhookUrlInput && webhookUrlInput.value.trim()) || DEFAULT_WEBHOOK_URL,
       autoSsoLogin: checkAutoSsoLogin ? checkAutoSsoLogin.checked : true,
       autoRevoke: checkAutoRevoke ? checkAutoRevoke.checked : true,
@@ -771,7 +771,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   [commentInput, dc0TargetSelect, dc1TargetSelect, catatanDigantiInput, delayInput, periodeInput,
     ssoEmailInput, ssoPasswordInput, pcNameInput, webhookUrlInput, whatsappSyncUrlInput,
-    checkEnableWhatsAppRemote, checkNotifyOnComplete, checkNotifyOnPauseStop, checkAutoSsoLogin,
+    checkEnableWhatsAppRemote, checkNotifyStatus, checkAutoSsoLogin,
     checkAutoRevoke, checkRequireConfirm, checkAutoApprove, checkCloseTab, checkApiDryRun]
     .filter(Boolean)
     .forEach(el => el.addEventListener('change', saveSettings));
@@ -1499,8 +1499,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (o.whatsappSyncUrl && whatsappSyncUrlInput) whatsappSyncUrlInput.value = o.whatsappSyncUrl;
     if (o.enableWhatsAppRemote !== undefined && checkEnableWhatsAppRemote) checkEnableWhatsAppRemote.checked = o.enableWhatsAppRemote;
     if (o.enableAdaptiveThrottling !== undefined && checkAdaptiveThrottling) checkAdaptiveThrottling.checked = o.enableAdaptiveThrottling;
-      if (o.notifyOnComplete !== undefined && checkNotifyOnComplete) checkNotifyOnComplete.checked = o.notifyOnComplete;
-      if (o.notifyOnPauseStop !== undefined && checkNotifyOnPauseStop) checkNotifyOnPauseStop.checked = o.notifyOnPauseStop;
+    if (checkNotifyStatus) {
+      if (o.notifyStatus !== undefined) {
+        checkNotifyStatus.checked = o.notifyStatus;
+      } else if (o.enableWebhook !== undefined) {
+        checkNotifyStatus.checked = o.enableWebhook;
+      } else {
+        checkNotifyStatus.checked = (o.notifyOnComplete !== false && o.notifyOnPauseStop !== false);
+      }
+    }
     if (o.autoSsoLogin !== undefined && checkAutoSsoLogin) checkAutoSsoLogin.checked = o.autoSsoLogin;
     if (o.autoRevoke !== undefined && checkAutoRevoke) checkAutoRevoke.checked = o.autoRevoke;
     if (o.requireManualConfirm !== undefined) checkRequireConfirm.checked = o.requireManualConfirm;
