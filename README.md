@@ -215,6 +215,10 @@ Seluruh pengembang dan asisten AI wajib mengikuti aturan di [**`AGENTS.md`**](fi
 
 ---
 
+
+
+### Modul Audit Anomali KBLI (Direktorat Statistik Jasa BPS)
+Tersedia skill .agents/skills/pengecekan-anomali-kbli untuk mendeteksi kesalahan klasifikasi KBLI sektor jasa (Akomodasi 55, Makan Minum 56, Keuangan L, Real Estat M, Rekreasi S, Jasa Lainnya T) dan 5 cek inkonsistensi aritmetika kuisioner SE2026.
 ## 📁 Struktur Berkas
 
 ```
@@ -243,6 +247,7 @@ Anomali/
 ├── .agents/skills/          # Modul skills panduan agen
 │   ├── git-safe-workflow/   # Panduan workflow git yang aman
 │   ├── qa-regression-guard/ # Panduan jaminan kualitas & zero regression
-│   └── doc-sync/            # Panduan pembaruan disiplin README & context
+│   ├── doc-sync/            # Panduan pembaruan disiplin README & context
+│   └── pengecekan-anomali-kbli/ # Audit anomali KBLI & data SE2026 (Statistik Jasa BPS)
 └── template/                # File template Excel (.xlsx)
 ```

@@ -1,7 +1,7 @@
 # CONTEXT.MD — TUNTAS SE2026 (Tracking dan Tindak Lanjut Anomali Sensus)
 
 > **Dokumen Konteks Proyek & Panduan Teknis Komprehensif**  
-> Terakhir diperbarui: 27 Oktober 2026, 17:05 WITA (Asia/Makassar / UTC+8)
+> Terakhir diperbarui: 27 Oktober 2026, 17:48 WITA (Asia/Makassar / UTC+8)
 > Zona Waktu Sistem: Waktu Indonesia Tengah (WITA / Asia/Makassar / UTC+8)
 
 ---
@@ -118,7 +118,8 @@ Anomali/
 ├── .agents/skills/          # Modul skill kecerdasan agen proyek
 │   ├── git-safe-workflow/   # Pedoman proteksi git tanpa push langsung ke main
 │   ├── qa-regression-guard/ # Pedoman pengujian kualitas dan jaminan zero-regression
-│   └── doc-sync/            # Pedoman sinkronisasi disiplin README.md & context.md
+│   ├── doc-sync/            # Pedoman sinkronisasi disiplin README.md & context.md
+│   └── pengecekan-anomali-kbli/ # Audit anomali KBLI & data SE2026 (Statistik Jasa BPS)
 └── template/                # Format template Excel standar siap pakai
     ├── Template_TUNTAS_DC0.xlsx          # Template Mode #DC_00 (link_fasih_sm)
     ├── Template_TUNTAS_DC1_KBLI.xlsx     # Template Mode #DC_01 (link, kbli_awal, kbli_tujuan)
