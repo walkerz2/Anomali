@@ -1,7 +1,7 @@
 # CONTEXT.MD — TUNTAS SE2026 (Tracking dan Tindak Lanjut Anomali Sensus)
 
 > **Dokumen Konteks Proyek & Panduan Teknis Komprehensif**  
-> Terakhir diperbarui: 26 Oktober 2026, 16:15 WITA (Asia/Makassar / UTC+8)  
+> Terakhir diperbarui: 27 Oktober 2026, 11:35 WITA (Asia/Makassar / UTC+8)
 > Zona Waktu Sistem: Waktu Indonesia Tengah (WITA / Asia/Makassar / UTC+8)
 
 ---
@@ -258,6 +258,7 @@ Ekstensi dapat dihubungkan ke workflow automation n8n (`https://n8n7309.online` 
 | `#JEDA` / `#JEDA PC 1` | Menjeda antrian otomasi seketika |
 | `#LANJUT` / `#LANJUT PC 1` | Melanjutkan kembali antrian dari titik jeda terakhir |
 | `#STOP` / `#STOP PC 1` | Menghentikan total proses antrian |
+| `#ULANG` / `#ULANG PC 1` | **Isolasi Retry Baris Gagal**: Memproses ulang secara eksklusif hanya baris-baris yang berstatus FAILED tanpa mengulang baris yang sukses atau baris pending lainnya |
 | `#TAMBAH [URL FASIH]` | **Dynamic Cloud Queue**: Menyisipkan link kuesioner baru ke antrian aktif secara live tanpa perlu sentuh laptop atau upload ulang file Excel |
 | `#HELP` / `#QUERY` | Menampilkan panduan sintaks perintah bot di WhatsApp |
 

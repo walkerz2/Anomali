@@ -1119,6 +1119,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         liveStatusText.textContent = res?.message || 'Gagal memulai ulang.';
         setRunnerStatus('IDLE');
         showIdleButtons();
+      } else {
+        liveStatusText.textContent = `Memproses ulang ${res.resetCount || 1} baris yang gagal...`;
       }
     });
   });

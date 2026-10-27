@@ -786,6 +786,7 @@ async function stopQueueExecution(details = 'Otomasi dihentikan total.') {
   queueRunToken++;
   isQueueRunning = false;
   runnerState.status = 'STOPPED';
+  runnerState.retryOnlyIndices = null;
   const activeTabToClose = runnerState.activeTabId;
   runnerState.activeTabId = null;
   await chrome.storage.local.set({ runnerState });
@@ -837,11 +838,13 @@ async function retryFailedQueueItems(options = null) {
     const queue = data.fasihQueue || [];
     let resetCount = 0;
     let firstResetIndex = -1;
+    const retryIndices = [];
     queue.forEach((item, idx) => {
       if (item && item.status === 'FAILED') {
         item.status = 'PENDING';
         item.error = null;
         if (firstResetIndex === -1) firstResetIndex = idx;
+        retryIndices.push(idx);
         resetCount++;
       }
     });
@@ -852,6 +855,7 @@ async function retryFailedQueueItems(options = null) {
 
     runnerState.consecutiveFailures = 0;
     runnerState.status = 'RUNNING';
+    runnerState.retryOnlyIndices = retryIndices; // STRICT: Hanya baris dalam daftar ini yang boleh dieksekusi
     runnerState.currentIndex = firstResetIndex !== -1 ? firstResetIndex : 0;
     if (options) {
       runnerState.options = { ...runnerState.options, ...options };
@@ -861,7 +865,7 @@ async function retryFailedQueueItems(options = null) {
     broadcastToPopup({ action: 'QUEUE_RESUMED' });
 
     startQueueRunner(runnerState.currentIndex, { forceRestart: true });
-    return { success: true, resetCount, startIndex: runnerState.currentIndex };
+    return { success: true, resetCount, startIndex: runnerState.currentIndex, retryIndices };
   } catch (err) {
     console.error('[TUNTAS] Gagal mengulang baris gagal:', err);
     return { success: false, error: err.message || String(err) };
@@ -1279,20 +1283,27 @@ function checkCircuitBreaker() {
 }
 
 // Helper: Cari index item PENDING berikutnya mulai dari fromIndex, lalu dari awal jika perlu
-function findNextPendingIndex(queue, fromIndex = 0) {
+function findNextPendingIndex(queue, fromIndex = 0, allowedIndices = null) {
   if (!queue || queue.length === 0) return -1;
   const start = Math.max(0, Math.min(fromIndex, queue.length));
 
+  const isAllowed = (idx) => {
+    if (!allowedIndices) return true;
+    if (Array.isArray(allowedIndices)) return allowedIndices.includes(idx);
+    if (allowedIndices instanceof Set) return allowedIndices.has(idx);
+    return true;
+  };
+
   // 1. Cari item PENDING mulai dari start ke depan
   for (let i = start; i < queue.length; i++) {
-    if (queue[i] && queue[i].status === 'PENDING') {
+    if (queue[i] && queue[i].status === 'PENDING' && isAllowed(i)) {
       return i;
     }
   }
 
   // 2. Jika tidak ada di depan, cari dari awal (index 0) hingga start - 1
   for (let i = 0; i < start; i++) {
-    if (queue[i] && queue[i].status === 'PENDING') {
+    if (queue[i] && queue[i].status === 'PENDING' && isAllowed(i)) {
       return i;
     }
   }
@@ -1588,6 +1599,11 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
 
   // Lewati jika BUKAN PENDING (misal sudah SUCCESS, SKIPPED, atau FAILED)
   if (item.status !== 'PENDING') {
+    return { tabIdToClose: prevTabIdToClose };
+  }
+
+  // Pengaman isolasi retry: jika sedang dalam mode retry khusus baris gagal, lewati baris di luar target
+  if (Array.isArray(runnerState.retryOnlyIndices) && runnerState.retryOnlyIndices.length > 0 && !runnerState.retryOnlyIndices.includes(index)) {
     return { tabIdToClose: prevTabIdToClose };
   }
 
@@ -2251,9 +2267,13 @@ async function startQueueRunner(fromIndex = null, { forceRestart = false } = {})
       const searchFrom = targetIndex !== null ? targetIndex : runnerState.currentIndex;
       targetIndex = null;
 
-      const nextIdx = findNextPendingIndex(queue, searchFrom);
+      const allowed = Array.isArray(runnerState.retryOnlyIndices) && runnerState.retryOnlyIndices.length > 0
+        ? new Set(runnerState.retryOnlyIndices)
+        : null;
+
+      const nextIdx = findNextPendingIndex(queue, searchFrom, allowed);
       if (nextIdx === -1) {
-        // Semua item PENDING dalam antrian telah selesai
+        // Semua item PENDING (atau seluruh baris target retry) dalam antrian telah selesai
         break;
       }
 
@@ -2282,7 +2302,7 @@ async function startQueueRunner(fromIndex = null, { forceRestart = false } = {})
       if (runnerState.status !== 'RUNNING') break;
 
       const latestQueue = refreshedState.fasihQueue || queue;
-      const upcomingIdx = findNextPendingIndex(latestQueue, targetIndex);
+      const upcomingIdx = findNextPendingIndex(latestQueue, targetIndex, allowed);
       if (upcomingIdx !== -1) {
         runnerState.currentIndex = upcomingIdx;
         await chrome.storage.local.set({ runnerState });
@@ -2291,6 +2311,8 @@ async function startQueueRunner(fromIndex = null, { forceRestart = false } = {})
 
     // Jika antrian selesai sampai akhir (masih RUNNING dan tidak ada PENDING lagi)
     if (queueRunToken === myRunToken && runnerState.status === 'RUNNING') {
+      const isRetryMode = Array.isArray(runnerState.retryOnlyIndices) && runnerState.retryOnlyIndices.length > 0;
+      runnerState.retryOnlyIndices = null;
       const shouldCloseByOption = runnerState.options.closeTabOnComplete !== false;
       if (shouldCloseByOption && prevTabIdToClose) {
         const closedLast = await safeCloseTab(prevTabIdToClose);
@@ -2304,11 +2326,13 @@ async function startQueueRunner(fromIndex = null, { forceRestart = false } = {})
       runnerState.activeTabId = null;
       stopKeepAlive();
       await chrome.storage.local.set({ runnerState });
-      broadcastToPopup({ action: 'ALL_COMPLETED' });
+      broadcastToPopup({ action: 'ALL_COMPLETED', isRetry: isRetryMode });
       sendWebhookStatusNotification({
         event: 'ALL_COMPLETED',
         status: 'COMPLETED',
-        details: 'Semua item dalam antrian sudah selesai diproses.'
+        details: isRetryMode
+          ? 'Pengulangan baris gagal telah selesai diproses.'
+          : 'Semua item dalam antrian sudah selesai diproses.'
       }).catch(() => {});
       syncWithWhatsAppRemote({ force: true }).catch(() => {});
     }
@@ -2579,6 +2603,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
       runnerState.consecutiveFailures = 0;
       runnerState.status = 'RUNNING';
+      runnerState.retryOnlyIndices = null;
       if (request.options) {
         runnerState.options = { ...runnerState.options, ...request.options };
       }
