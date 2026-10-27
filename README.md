@@ -23,7 +23,7 @@ Alurnya seperti #DC_00/#DC_01, tetapi variabelnya bebas diubah sesuai dataKey fo
 2. Klik **② Unduh Template** → Excel berisi kolom `link_fasih_sm`, `nama_usaha`, `kode_catatan`, dan satu kolom per variabel; sheet PETUNJUK memuat kode pilihan tiap variabel.
 3. Isi nilai baru → upload → Mulai (selalu jalankan mode **Uji coba (dry run)** terlebih dahulu).
 
-- Judul kolom cukup nama variabel (misal `r27a`); bot mencocokkan `r27a#2001` dsb. secara otomatis. Bila dokumen berisi beberapa usaha, `nama_usaha` dipakai untuk memilih usaha yang tepat.
+- Judul kolom cukup nama variabel teknis (misal `r27a`, `r26b`) maupun nama deskriptif (`nilai_pendapatan`, `biaya_produksi`, `biaya_pembelian`, `operasional`); bot memiliki Smart Alias dua arah untuk mencocokkan `r27a#2001` dsb. secara otomatis. Bila dokumen berisi beberapa usaha, `nama_usaha` dipakai untuk memilih usaha yang tepat.
 - Kolom `kode_catatan` menentukan catatan pada setiap variabel yang berubah (kosong = #1):
   - **#1**: Perbaikan karena kesalahan pemahaman konsep oleh petugas / kesalahan entri kuesioner
   - **#2**: Hasil konfirmasi/revisit kepada responden

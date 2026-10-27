@@ -1,7 +1,7 @@
 # CONTEXT.MD — TUNTAS SE2026 (Tracking dan Tindak Lanjut Anomali Sensus)
 
 > **Dokumen Konteks Proyek & Panduan Teknis Komprehensif**  
-> Terakhir diperbarui: 27 Oktober 2026, 11:46 WITA (Asia/Makassar / UTC+8)
+> Terakhir diperbarui: 27 Oktober 2026, 17:05 WITA (Asia/Makassar / UTC+8)
 > Zona Waktu Sistem: Waktu Indonesia Tengah (WITA / Asia/Makassar / UTC+8)
 
 ---
@@ -165,6 +165,7 @@ Ekstensi menyediakan 4 mode kerja terintegrasi yang dapat dipilih dari tab atas 
   2. **Auto Backup JSON**: Menyimpan salinan variabel asli sebelum diubah untuk keamanan data sensus.
   3. **Visual Form Verification & Submit**: Membuka kembali formulir di browser untuk memvalidasi tidak ada status galat (Clean) sebelum submit dan approve.
   4. **Dry Run Mode**: Simulasi perubahan nilai tanpa menyimpan ke server.
+  5. **Smart NTB Aliases Dua Arah (Bi-directional Mapping)**: Mendukung pemetaan otomatis judul kolom Bahasa Indonesia (nilai_pendapatan, biaya_produksi, biaya_pembelian, operasional) ke dataKey teknis FASIH (r27a, r26b, r26c, r26d atau b4_r* / *_bln) di semua format kuesioner. Sel kosong di Excel tetap dipertahankan sebagai nilai asli tanpa perubahan (undefined).
 
 ### 4.4 Mode 4: NTB · Validasi & Imputasi (Flag 3)
 - **Tujuan**: Menganalisis anomali Rasio Nilai Tambah Bruto (NTB Flag 3) dari file mentah PANTAU BPS 100% di browser (*client-side*).

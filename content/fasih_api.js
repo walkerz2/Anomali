@@ -314,6 +314,38 @@
       'b4_r26d', 'r26d', 'r26_d',
       'biaya_produksi_bln', 'biaya_operasional_bln', 'r30b', 'r30_b',
       'r22d', 'r22_d', 'r22b', 'r22c', 'biaya_operasional_ub'
+    ],
+
+    // Reverse Alias: Nama Kolom Bahasa Indonesia -> dataKey teknis FASIH
+    'nilai_pendapatan': [
+      'nilai_pendapatan', 'r27a', 'b4_r27a', 'r27_a',
+      'nilai_pendapatan_bln', 'r31a', 'r31_a', 'r31', 'pendapatan_bln',
+      'r23a', 'r23_a', 'nilai_produksi_ub', 'nilai_produksi'
+    ],
+    'pendapatan_lainnya': [
+      'pendapatan_lainnya', 'r27b', 'b4_r27b', 'r27_b',
+      'pendapatan_lain_bln', 'r31b', 'r31_b',
+      'r23b', 'r23_b', 'pendapatan_lainnya_ub', 'pendapatan_lain_ub'
+    ],
+    'biaya_produksi': [
+      'biaya_produksi', 'r26b', 'b4_r26b', 'r26_b',
+      'biaya_produksi_bln', 'r30b', 'r30_b',
+      'r22b', 'r22_b', 'r22c', 'r22d', 'biaya_operasional_ub'
+    ],
+    'biaya_pembelian': [
+      'biaya_pembelian', 'r26c', 'b4_r26c', 'r26_c',
+      'biaya_pembelian_bln', 'r30b', 'r30_b',
+      'r22c', 'r22_c', 'r22b', 'r22d', 'biaya_operasional_ub'
+    ],
+    'operasional': [
+      'operasional', 'biaya_operasional', 'r26d', 'b4_r26d', 'r26_d',
+      'operasional_bln', 'biaya_operasional_bln', 'r30b', 'r30_b',
+      'r22d', 'r22_d', 'r22b', 'r22c', 'biaya_operasional_ub'
+    ],
+    'biaya_operasional': [
+      'biaya_operasional', 'operasional', 'r26d', 'b4_r26d', 'r26_d',
+      'biaya_operasional_bln', 'operasional_bln', 'r30b', 'r30_b',
+      'r22d', 'r22_d', 'r22b', 'r22c', 'biaya_operasional_ub'
     ]
   };
 
