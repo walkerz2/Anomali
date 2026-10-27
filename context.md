@@ -1,7 +1,7 @@
 # CONTEXT.MD — TUNTAS SE2026 (Tracking dan Tindak Lanjut Anomali Sensus)
 
 > **Dokumen Konteks Proyek & Panduan Teknis Komprehensif**  
-> Terakhir diperbarui: 27 Oktober 2026, 11:35 WITA (Asia/Makassar / UTC+8)
+> Terakhir diperbarui: 27 Oktober 2026, 11:46 WITA (Asia/Makassar / UTC+8)
 > Zona Waktu Sistem: Waktu Indonesia Tengah (WITA / Asia/Makassar / UTC+8)
 
 ---
@@ -113,6 +113,8 @@ Anomali/
 │   └── fasih_api.js         # API Engine: modifikasi data kuesioner langsung via endpoint FormGear
 ├── scripts/                 # Skrip verifikasi dan automasi pengujian
 │   └── verify-all.js        # Pengujian mandiri AST syntax, manifest, dan message action integrity
+├── workflows/               # Blueprint alur kerja otomatisasi n8n & integrasi WhatsApp
+│   └── tuntas_n8n_workflow.json # JSON workflow n8n lengkap (Siap Import/Paste ke n8n canvas)
 ├── .agents/skills/          # Modul skill kecerdasan agen proyek
 │   ├── git-safe-workflow/   # Pedoman proteksi git tanpa push langsung ke main
 │   ├── qa-regression-guard/ # Pedoman pengujian kualitas dan jaminan zero-regression
@@ -248,6 +250,7 @@ Ekstensi dapat dihubungkan ke workflow automation n8n (`https://n8n7309.online` 
 - **Independensi per PC**: Setiap satu PC yang mengalami kondisi Jeda, Stop, atau Selesai akan seketika mengirimkan notifikasi terformat lengkap dengan identitas nama PC, menu aktif, dan progres terkini.
 
 ### 7.2 Two-Way WhatsApp Remote Control & Dynamic Cloud Queue
+- Blueprint workflow n8n lengkap tersimpan di [`workflows/tuntas_n8n_workflow.json`](file:///d:/capek/Anomali/workflows/tuntas_n8n_workflow.json).
 - Endpoint sinkronisasi status & perintah dua arah dinamis (`runnerOptions.syncWebhookUrl`).
 - Background service worker melakukan sinkronisasi berkala (tiap 10-15 detik) untuk membaca instruksi remote:
 

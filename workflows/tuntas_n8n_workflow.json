@@ -1,0 +1,130 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\n// 1. Ekstraksi isi pesan WhatsApp dari berbagai format input (Chatery / Switch / Webhook)\nconst content = String(\n  $json.data?.content ||\n  $json.body?.message?.text ||\n  $json.body?.message?.conversation ||\n  $json.body?.text ||\n  $json.text ||\n  $json.message ||\n  $('Switch1')?.item?.json?.data?.content ||\n  $('Switch1')?.item?.json?.body?.message?.text ||\n  ''\n).trim();\n\n// Pastikan inisialisasi state tersimpan di n8n\nstaticData.devices = staticData.devices || {};\nstaticData.pendingCommands = staticData.pendingCommands || {};\n\n// ================= PEMBERSIHAN OTOMATIS (PRUNING KEDALUWARSA) =================\n// Hapus perangkat yang tidak mengirim update lebih dari 30 menit atau tidak punya stempel waktu\nconst now = Date.now();\nconst MAX_INACTIVE_MS = 30 * 60 * 1000; // 30 menit batas kedaluwarsa\n\nfor (const k of Object.keys(staticData.devices)) {\n  const d = staticData.devices[k];\n  // Hapus jika PC lama tidak memiliki lastSeen (data lawas) atau sudah offline > 30 menit\n  if (!d || !d.lastSeen || (now - d.lastSeen > MAX_INACTIVE_MS)) {\n    delete staticData.devices[k];\n  }\n}\n\nconst parts = content.split(/\\s+/);\nconst rawCmd = (parts[0] || '').toUpperCase();\n\n// ================= URUTKAN NAMA PC SECARA TERATUR =================\n// Natural sort: 7309_0 -> 7309_1 -> 7309_2 -> 7309_3 -> 7309_4 -> 7309_5 -> 7309_6\nconst devKeys = Object.keys(staticData.devices || {}).sort((a, b) => \n  a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })\n);\n\nlet targetPc = '';\nlet nextArgIndex = 1;\n\n// 2. Deteksi Target PC (Mendukung: \"1\", \"7309_0\", \"PC 1\", \"LAPTOP 1\", tautan langsung, atau \"SEMUA\")\nif (parts[1]) {\n  const p1 = parts[1].toUpperCase();\n\n  // Jika parameter kedua langsung berupa tautan kuesioner FASIH\n  if (parts[1].startsWith('http://') || parts[1].startsWith('https://')) {\n    targetPc = 'SEMUA';\n    nextArgIndex = 1;\n  }\n  // Jika perintah broadcast eksplisit\n  else if (p1 === 'SEMUA' || p1 === 'ALL') {\n    targetPc = 'SEMUA';\n    nextArgIndex = 2;\n  }\n  // Jika format menggunakan prefix nama: \"PC 1\", \"LAPTOP 2\", dsb\n  else if ((p1 === 'PC' || p1 === 'LAPTOP' || p1 === 'KOMPUTER' || p1 === 'NO') && parts[2]) {\n    targetPc = `${p1} ${parts[2].toUpperCase()}`;\n    nextArgIndex = 3;\n  }\n  // Jika nama PC langsung (misal: \"7309_0\", \"1\", \"SERVER\", dsb)\n  else {\n    targetPc = parts[1];\n    nextArgIndex = 2;\n  }\n}\n\n// 3. Pencocokan Cerdas dengan Daftar PC yang Sedang Aktif di n8n\nlet resolvedDeviceKey = null;\n\nif (targetPc && targetPc !== 'SEMUA') {\n  const cleanTarget = targetPc.toUpperCase().replace(/[\\s\\-_]/g, '');\n  const targetDigits = targetPc.replace(/\\D/g, '');\n\n  // a. Cocok persis (misal: \"7309_0\" == \"7309_0\" atau \"PC 1\" == \"PC 1\")\n  resolvedDeviceKey = devKeys.find(k => k.toUpperCase() === targetPc.toUpperCase());\n\n  // b. Cocok tanpa spasi / tanda strip (misal: \"73090\" vs \"7309_0\")\n  if (!resolvedDeviceKey) {\n    resolvedDeviceKey = devKeys.find(k => k.toUpperCase().replace(/[\\s\\-_]/g, '') === cleanTarget);\n  }\n\n  // c. Cocok hanya nomor digit atau akhiran (misal user ketik \"0\", cocok ke \"7309_0\" atau \"PC 0\")\n  if (!resolvedDeviceKey && targetDigits) {\n    resolvedDeviceKey = devKeys.find(k => \n      k.replace(/\\D/g, '') === targetDigits || \n      k.endsWith(`_${targetDigits}`) || \n      k.endsWith(` ${targetDigits}`)\n    );\n  }\n\n  // d. Fallback: jika belum ada di devKeys, tetap gunakan nama yang diketik user\n  if (!resolvedDeviceKey) {\n    resolvedDeviceKey = targetPc;\n  }\n}\n\nlet reply = '';\n\n// ================= DAFTAR PERINTAH BOT =================\n\n// 1. PANDUAN LENGKAP (#QUERY / #HELP / #BANTUAN)\nif (rawCmd === '#QUERY' || rawCmd === '#HELP' || rawCmd === '#BANTUAN' || rawCmd === '#MENU' || rawCmd === '#PANDUAN') {\n  reply = '🤖 *[PANDUAN PERINTAH BOT TUNTAS SE2026]*\\n\\n' +\n    'Gunakan perintah berawalan *#* berikut untuk memantau & mengendalikan bot di PC/Laptop:\\n\\n' +\n    '📊 *1. CEK STATUS & MONITORING*\\n' +\n    '• *#STATUS* : Cek ringkasan status SEMUA PC aktif (berurutan)\\n' +\n    '• *#STATUS [Nama PC]* : Cek detail antrian PC tertentu (contoh: *#STATUS 7309_0* atau *#STATUS 0*)\\n\\n' +\n    '🔄 *2. ULANGI BARIS GAGAL (RETRY)*\\n' +\n    '• *#ULANG* : Ulangi HANYA baris GAGAL pada PC yang mengalami error\\n' +\n    '• *#ULANG [Nama PC]* : Ulangi baris GAGAL khusus di PC tertentu (contoh: *#ULANG 7309_0* atau *#ULANG 0*)\\n\\n' +\n    '⏸️ *3. PENGENDALIAN REMOTE*\\n' +\n    '• *#JEDA* : Menjeda proses di SEMUA PC\\n' +\n    '• *#JEDA [Nama PC]* : Menjeda proses hanya di PC yang dipilih\\n' +\n    '• *#LANJUT* : Melanjutkan proses di SEMUA PC\\n' +\n    '• *#LANJUT [Nama PC]* : Melanjutkan proses hanya di PC yang dipilih\\n' +\n    '• *#STOP* : Menghentikan total antrian di SEMUA PC\\n' +\n    '• *#STOP [Nama PC]* : Menghentikan proses hanya di PC yang dipilih\\n\\n' +\n    '➕ *4. TAMBAH ANTRIAN LINK BARU*\\n' +\n    '• *#TAMBAH [link]* : Masukkan link ke antrian semua PC\\n' +\n    '• *#TAMBAH [Nama PC] [link]* : Masukkan link khusus ke PC tertentu\\n\\n' +\n    '🧹 *5. BERSIHKAN MONITORING*\\n' +\n    '• *#BERSIHKAN* : Hapus riwayat PC lama yang sudah offline\\n\\n' +\n    '💡 _Catatan: Format target PC fleksibel, bisa angka saja (#ULANG 0) atau nama lengkap (#ULANG 7309_0)._';\n}\n// 2. CEK STATUS & MONITORING (#STATUS / #CEK)\nelse if (rawCmd === '#STATUS' || rawCmd === '#CEK') {\n  if (resolvedDeviceKey && resolvedDeviceKey !== 'SEMUA') {\n    const st = staticData.devices[resolvedDeviceKey];\n    if (!st) {\n      reply = `⚠️ *[STATUS BOT TUNTAS]*\\nTidak ditemukan data untuk *${resolvedDeviceKey}*.\\nPerangkat aktif saat ini: ${devKeys.length ? devKeys.join(', ') : 'Belum ada'}`;\n    } else if (st.message) {\n      reply = st.message;\n    } else {\n      reply = `📊 *[STATUS BOT TUNTAS | ${st.pc}]*\\n` +\n        `⚡ Status: *${st.statusLabel || st.status}*\\n` +\n        `📋 Menu: *${st.mode || '-'}*\\n` +\n        `📈 Progres: *${st.progress}* ${st.persen ? `(${st.persen})` : ''}\\n` +\n        `🏢 Usaha: ${st.nama_usaha || '-'}${st.no_baris && st.no_baris !== '-' ? ` (Baris #${st.no_baris})` : ''}\\n` +\n        `✅ Sukses: ${st.successCount || 0} | ❌ Gagal: ${st.failedCount || 0}${st.skippedCount ? ` | ⏩ Dilewati: ${st.skippedCount}` : ''}\\n` +\n        `⏳ Sisa Antrian: ${st.queueRemaining || 0}\\n` +\n        `📶 Server FASIH: ${st.serverHealth || 'Normal'}\\n` +\n        `⏰ Waktu: ${st.updatedAt || '-'}`;\n    }\n  } else {\n    if (devKeys.length === 0) {\n      reply = '⚠️ *[STATUS BOT TUNTAS]*\\nBelum ada laporan dari PC/Laptop yang aktif (atau seluruh unit sedang offline).\\nPastikan ekstensi TUNTAS aktif di browser.';\n    } else if (devKeys.length === 1) {\n      const st = staticData.devices[devKeys[0]];\n      reply = st.message ? st.message : (\n        `📊 *[STATUS BOT TUNTAS | ${st.pc}]*\\n` +\n        `⚡ Status: *${st.statusLabel || st.status}*\\n` +\n        `📋 Menu: *${st.mode || '-'}*\\n` +\n        `📈 Progres: *${st.progress}* ${st.persen ? `(${st.persen})` : ''}\\n` +\n        `🏢 Usaha: ${st.nama_usaha || '-'}${st.no_baris && st.no_baris !== '-' ? ` (Baris #${st.no_baris})` : ''}\\n` +\n        `✅ Sukses: ${st.successCount || 0} | ❌ Gagal: ${st.failedCount || 0}${st.skippedCount ? ` | ⏩ Dilewati: ${st.skippedCount}` : ''}\\n` +\n        `⏳ Sisa Antrian: ${st.queueRemaining || 0}\\n` +\n        `📶 Server FASIH: ${st.serverHealth || 'Normal'}\\n` +\n        `⏰ Waktu: ${st.updatedAt || '-'}`\n      );\n    } else {\n      let msg = `📊 *[MONITORING SEMUA PERANGKAT TUNTAS]*\\nTotal perangkat aktif: *${devKeys.length}*\\n\\n`;\n      for (const k of devKeys) {\n        const d = staticData.devices[k];\n        msg += `💻 *${d.pc}* [${d.statusLabel || d.status}]\\n` +\n          `   • Menu: ${d.mode || '-'}\\n` +\n          `   • Progres: *${d.progress}* ${d.persen ? `(${d.persen})` : ''}\\n` +\n          `   • Hasil: ✅ ${d.successCount || 0} | ❌ ${d.failedCount || 0}${d.skippedCount ? ` | ⏩ ${d.skippedCount}` : ''}\\n` +\n          `   • Usaha: ${d.nama_usaha || '-'}\\n` +\n          `   • Server: ${d.serverHealth || 'Normal'}\\n` +\n          `   • Update: ${d.updatedAt || '-'}\\n\\n`;\n      }\n      msg += `_Ketik *#STATUS [Nama PC]* untuk cek detail unit tertentu._`;\n      reply = msg.trim();\n    }\n  }\n}\n// 3. ULANGI BARIS GAGAL (#ULANG / #RETRY / #ULANGI_GAGAL)\nelse if (rawCmd === '#ULANG' || rawCmd === '#RETRY' || rawCmd === '#ULANGI_GAGAL' || rawCmd === '#RETRY_FAILED') {\n  // Jika target PC spesifik disebutkan (misal: #ULANG 1 atau #ULANG 7309_1)\n  if (resolvedDeviceKey && resolvedDeviceKey !== 'SEMUA') {\n    const d = staticData.devices[resolvedDeviceKey];\n    const fCount = Number(d?.failedCount || 0);\n    staticData.pendingCommands[resolvedDeviceKey] = { action: 'RETRY_FAILED', by: 'WhatsApp' };\n    reply = `🔄 *[ULANGI BARIS GAGAL]*\\nPerintah untuk mengulang baris gagal dikirim khusus ke *${resolvedDeviceKey}*` +\n      (fCount > 0 ? ` (${fCount} baris gagal akan diproses ulang).` : '.\\n(Catatan: saat ini tercatat 0 baris gagal di unit ini).');\n  } \n  // Jika perintah umum (#ULANG tanpa target PC)\n  else {\n    // Cari PC mana saja yang benar-benar memiliki baris gagal (>0)\n    const failedDevices = devKeys.filter(k => {\n      const d = staticData.devices[k];\n      return d && Number(d.failedCount) > 0;\n    });\n\n    if (failedDevices.length === 0) {\n      reply = '✅ *[TIDAK ADA BARIS GAGAL]*\\nSeluruh PC/Laptop aktif saat ini *tidak memiliki baris antrian yang gagal* (semua baris sudah selesai/sukses).\\n\\nTidak ada antrian yang perlu diulang.';\n    } else if (failedDevices.length === 1) {\n      const targetPc = failedDevices[0];\n      const fCount = staticData.devices[targetPc].failedCount;\n      staticData.pendingCommands[targetPc] = { action: 'RETRY_FAILED', by: 'WhatsApp' };\n      reply = `🔄 *[ULANGI BARIS GAGAL]*\\nPerintah mengulang baris gagal dikirim *khusus ke ${targetPc}* (${fCount} baris gagal).\\n\\nUnit lain yang sudah sukses *tidak akan diulang*.`;\n    } else {\n      // Kirim perintah HANYA ke PC-PC yang memiliki baris gagal\n      for (const targetPc of failedDevices) {\n        staticData.pendingCommands[targetPc] = { action: 'RETRY_FAILED', by: 'WhatsApp' };\n      }\n      const listDev = failedDevices.map(k => `• *${k}*: ${staticData.devices[k].failedCount} baris gagal`).join('\\n');\n      reply = `🔄 *[ULANGI BARIS GAGAL]*\\nPerintah mengulang baris gagal dikirim ke unit yang memiliki error:\\n${listDev}\\n\\nUnit lain yang sudah sukses *tidak akan diulang*.`;\n    }\n  }\n}\n// 4. JEDA (#JEDA / #PAUSE)\nelse if (rawCmd === '#JEDA' || rawCmd === '#PAUSE') {\n  if (resolvedDeviceKey && resolvedDeviceKey !== 'SEMUA') {\n    staticData.pendingCommands[resolvedDeviceKey] = { action: 'PAUSE', by: 'WhatsApp' };\n    reply = `⏸️ *[PERINTAH JEDA DIKIRIM]*\\nPerintah jeda telah dikirim khusus untuk *${resolvedDeviceKey}*.`;\n  } else {\n    staticData.broadcastCommand = { id: Date.now(), action: 'PAUSE', by: 'WhatsApp', timestamp: Date.now() };\n    reply = '⏸️ *[PERINTAH JEDA DIKIRIM]*\\nPerintah jeda telah dikirim ke *SEMUA PC/Laptop* aktif.';\n  }\n}\n// 5. LANJUT (#LANJUT / #RESUME)\nelse if (rawCmd === '#LANJUT' || rawCmd === '#RESUME') {\n  if (resolvedDeviceKey && resolvedDeviceKey !== 'SEMUA') {\n    staticData.pendingCommands[resolvedDeviceKey] = { action: 'RESUME', by: 'WhatsApp' };\n    reply = `▶️ *[PERINTAH LANJUT DIKIRIM]*\\nPerintah lanjut telah dikirim khusus untuk *${resolvedDeviceKey}*.`;\n  } else {\n    staticData.broadcastCommand = { id: Date.now(), action: 'RESUME', by: 'WhatsApp', timestamp: Date.now() };\n    reply = '▶️ *[PERINTAH LANJUT DIKIRIM]*\\nPerintah lanjut telah dikirim ke *SEMUA PC/Laptop* aktif.';\n  }\n}\n// 6. STOP (#STOP / #BERHENTI)\nelse if (rawCmd === '#STOP' || rawCmd === '#BERHENTI') {\n  if (resolvedDeviceKey && resolvedDeviceKey !== 'SEMUA') {\n    staticData.pendingCommands[resolvedDeviceKey] = { action: 'STOP', by: 'WhatsApp' };\n    reply = `⏹️ *[PERINTAH STOP DIKIRIM]*\\nPerintah stop telah dikirim khusus untuk *${resolvedDeviceKey}*.`;\n  } else {\n    staticData.broadcastCommand = { id: Date.now(), action: 'STOP', by: 'WhatsApp', timestamp: Date.now() };\n    reply = '⏹️ *[PERINTAH STOP DIKIRIM]*\\nPerintah stop telah dikirim ke *SEMUA PC/Laptop* aktif.';\n  }\n}\n// 7. TAMBAH ANTRIAN LINK (#TAMBAH)\nelse if (rawCmd === '#TAMBAH') {\n  const linkCandidate = parts[nextArgIndex] || parts[1] || '';\n  if (!linkCandidate.startsWith('http')) {\n    reply = '⚠️ Format link tidak valid.\\nContoh format yang benar:\\n• *#TAMBAH https://fasih-sm.bps.go.id/...*\\n• *#TAMBAH 1 https://fasih-sm.bps.go.id/...*';\n  } else {\n    const cmdPayload = { action: 'ADD_QUEUE', link: linkCandidate.trim() };\n    if (resolvedDeviceKey && resolvedDeviceKey !== 'SEMUA') {\n      staticData.pendingCommands[resolvedDeviceKey] = cmdPayload;\n      reply = `➕ *[ANTRIAN DITAMBAHKAN]*\\nTautan kuesioner baru dikirim khusus ke *${resolvedDeviceKey}*:\\n${linkCandidate.trim()}`;\n    } else {\n      staticData.broadcastCommand = { id: Date.now(), action: 'ADD_QUEUE', link: linkCandidate.trim(), timestamp: Date.now() };\n      reply = `➕ *[ANTRIAN DITAMBAHKAN]*\\nTautan kuesioner baru dikirim ke antrian *SEMUA PC*:\\n${linkCandidate.trim()}`;\n    }\n  }\n}\n// 8. BERSIHKAN REGISTRY MANUAL (#BERSIHKAN / #CLEAR / #RESET)\nelse if (rawCmd === '#BERSIHKAN' || rawCmd === '#CLEAR' || rawCmd === '#RESET') {\n  staticData.devices = {};\n  reply = '🧹 *[REGISTRY PERANGKAT DIBERSIHKAN]*\\nSemua riwayat perangkat lama telah dihapus.\\n\\nPerangkat yang aktif akan otomatis muncul kembali dalam beberapa detik saat mengirim sinkronisasi.';\n}\n// 9. PERINTAH TIDAK DIKENAL\nelse {\n  reply = '❓ *[PERINTAH TIDAK DIKENAL]*\\n\\n' +\n    `Perintah \"${content}\" tidak dikenali oleh Bot TUNTAS.\\n\\n` +\n    '👉 Ketik *#QUERY* untuk melihat daftar lengkap perintah bot.';\n}\n\nreturn { json: { replyMessage: reply } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        1456
+      ],
+      "id": "9f28dae6-751a-49dc-afc1-ed317b9aee1c",
+      "name": "Proses Perintah TUNTAS"
+    },
+    {
+      "parameters": {
+        "sessionId": "7309",
+        "chatId": "6281383833719",
+        "message": "={{ $('Proses Perintah TUNTAS').item.\njson.replyMessage }}"
+      },
+      "type": "n8n-nodes-chatery-whatsapp.chateryWhatsApp",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        1376
+      ],
+      "id": "2423fcd2-4d87-4327-b57f-01cba3350e4f",
+      "name": "Kirim Balasan TUNTAS ke WA",
+      "credentials": {
+        "chateryApi": {
+          "id": "oKdRqwq8E5kEQMw4",
+          "name": "7309"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tuntas-bot-sync2",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        1040,
+        1440
+      ],
+      "id": "5055b663-6301-4e7a-bee0-e177dc722e24",
+      "name": "Webhook Ekstensi Sync",
+      "webhookId": "c8e23b4e-dd79-4382-8414-acf4d1c1ab5e"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst body = $json.body || {};\n\nstaticData.devices = staticData.devices || {};\nstaticData.pendingCommands = staticData.pendingCommands || {};\n\nconst pcName = String(body.pc || body.pc_name || 'PC 1').trim();\n\n// Format waktu standar WITA\nconst waktuWita = body.waktu_lokal || (new Date().toLocaleTimeString('id-ID', { \n  timeZone: 'Asia/Makassar', \n  hour12: false \n}) + ' WITA');\n\n// 1. Simpan telemetri status PC ini ke registry devices secara lengkap\nif (body.pc || body.pc_name || body.status) {\n  const deviceData = {\n    pc: pcName,\n    status: body.status || 'IDLE',\n    statusLabel: body.statusLabel || body.status || 'IDLE',\n    mode: body.modeLabel || body.mode || '-',\n    progress: body.progress || body.progres || '0 / 0',\n    persen: body.persen || '',\n    nama_usaha: body.nama_usaha || '-',\n    no_baris: body.no_baris || '-',\n    successCount: body.successCount ?? body.sukses ?? 0,\n    failedCount: body.failedCount ?? body.gagal ?? 0,\n    skippedCount: body.skippedCount ?? body.dilewati ?? 0,\n    queueRemaining: body.queueRemaining ?? body.sisa_antrian ?? 0,\n    totalQueue: body.totalQueue ?? body.total_antrian ?? 0,\n    serverHealth: body.serverHealth || body.server_health || 'Normal (1.0x)',\n    message: body.message || body.text || '',\n    updatedAt: waktuWita,\n    lastSeen: Number(body.timestamp) || Date.now() // Stempel waktu aktif\n  };\n  \n  staticData.devices[pcName] = deviceData;\n  staticData.lastStatus = deviceData;\n}\n\n// 2. Ambil perintah khusus untuk PC ini (Pencocokan Cerdas)\nlet commandToSend = { action: 'NONE' };\nlet matchedCmdKey = null;\n\nconst pendingKeys = Object.keys(staticData.pendingCommands || {});\nconst cleanPc = pcName.toUpperCase().replace(/[\\s\\-_]/g, '');\nconst pcDigits = pcName.replace(/\\D/g, '');\n\nfor (const pk of pendingKeys) {\n  const cleanPk = pk.toUpperCase().replace(/[\\s\\-_]/g, '');\n  const pkDigits = pk.replace(/\\D/g, '');\n\n  if (pk.toUpperCase() === pcName.toUpperCase() || cleanPk === cleanPc || (pcDigits && pkDigits && pcDigits === pkDigits)) {\n    matchedCmdKey = pk;\n    break;\n  }\n}\n\n// Eksekusi perintah khusus PC ini\nif (matchedCmdKey) {\n  commandToSend = staticData.pendingCommands[matchedCmdKey];\n  delete staticData.pendingCommands[matchedCmdKey];\n\n  // Dukung RESUME, JEDA, STOP, dan RETRY_FAILED (#ULANG)\n  if (commandToSend.action === 'RESUME' || commandToSend.action === 'LANJUT') {\n    if (staticData.devices[pcName]) staticData.devices[pcName].status = 'RUNNING';\n  } else if (commandToSend.action === 'RETRY_FAILED' || commandToSend.action === 'ULANG') {\n    // Hanya ubah status menjadi RUNNING jika PC ini memang punya baris gagal\n    if (staticData.devices[pcName] && Number(staticData.devices[pcName].failedCount) > 0) {\n      staticData.devices[pcName].status = 'RUNNING';\n    }\n  } else if (commandToSend.action === 'PAUSE' || commandToSend.action === 'JEDA') {\n    if (staticData.devices[pcName]) staticData.devices[pcName].status = 'PAUSED';\n  } else if (commandToSend.action === 'STOP' || commandToSend.action === 'BERHENTI') {\n    if (staticData.devices[pcName]) staticData.devices[pcName].status = 'STOPPED';\n  }\n}\n// Jika ada perintah broadcast untuk SEMUA PC\nelse if (staticData.broadcastCommand) {\n  staticData.executedBroadcasts = staticData.executedBroadcasts || {};\n  const broadcastId = staticData.broadcastCommand.id;\n  \n  if (!staticData.executedBroadcasts[broadcastId]) {\n    staticData.executedBroadcasts[broadcastId] = [];\n  }\n  \n  if (!staticData.executedBroadcasts[broadcastId].includes(pcName)) {\n    commandToSend = staticData.broadcastCommand;\n    staticData.executedBroadcasts[broadcastId].push(pcName);\n\n    // Pengaman ketat: jika perintah adalah RETRY_FAILED, jangan kirim ke PC yang memiliki 0 baris gagal\n    if (commandToSend.action === 'RETRY_FAILED' || commandToSend.action === 'ULANG') {\n      const fCount = Number(staticData.devices[pcName]?.failedCount || 0);\n      if (fCount === 0) {\n        commandToSend = { action: 'NONE' };\n      } else if (staticData.devices[pcName]) {\n        staticData.devices[pcName].status = 'RUNNING';\n      }\n    } else if (commandToSend.action === 'RESUME' || commandToSend.action === 'LANJUT') {\n      if (staticData.devices[pcName]) staticData.devices[pcName].status = 'RUNNING';\n    } else if (commandToSend.action === 'PAUSE' || commandToSend.action === 'JEDA') {\n      if (staticData.devices[pcName]) staticData.devices[pcName].status = 'PAUSED';\n    } else if (commandToSend.action === 'STOP' || commandToSend.action === 'BERHENTI') {\n      if (staticData.devices[pcName]) staticData.devices[pcName].status = 'STOPPED';\n    }\n  }\n}\n\nreturn { json: { status: 'OK', command: commandToSend } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        1296
+      ],
+      "id": "5b821569-23ba-40ea-b759-0ba147ad2d74",
+      "name": "Simpan Status & Kirim Perintah"
+    },
+    {
+      "parameters": {
+        "resource": "history",
+        "operation": "markRead",
+        "sessionId": "={{ $('Chatery WhatsApp Trigger').item.json.sessionId }}",
+        "chatId": "={{ $('Chatery WhatsApp Trigger').item.json.data.chatId }}",
+        "messageId": "={{ $('Chatery WhatsApp Trigger').item.json.data.id }}"
+      },
+      "type": "n8n-nodes-chatery-whatsapp.chateryWhatsApp",
+      "typeVersion": 1,
+      "position": [
+        1504,
+        1248
+      ],
+      "id": "cb1ed73d-8283-4e67-bd7b-d9b88a3ad577",
+      "name": "Mark a chat as read3",
+      "credentials": {
+        "chateryApi": {
+          "id": "oKdRqwq8E5kEQMw4",
+          "name": "7309"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Proses Perintah TUNTAS": {
+      "main": [
+        [
+          {
+            "node": "Mark a chat as read3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Ekstensi Sync": {
+      "main": [
+        [
+          {
+            "node": "Simpan Status & Kirim Perintah",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark a chat as read3": {
+      "main": [
+        [
+          {
+            "node": "Kirim Balasan TUNTAS ke WA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "dd96000c4e2d0ca717f6c2086e58b56d137d6415546bd23e4bc5545c5c645410"
+  }
+}
