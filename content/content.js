@@ -4902,11 +4902,11 @@
       notifyStep('STEP_5_ALL_DONE', 'Semua item usaha dan pertanyaan target telah selesai diberi catatan!');
       await sleep(getJitterDelay(stepDelay));
       await checkAbortOrPause();
-
-      // STEP 5B: Buka Menu CATATAN di sidebar & Aktifkan Toggle "Tampilkan Anomali Usaha dan Keluarga"
-      await handleCatatanAnomaliSection(stepDelay);
-      await checkAbortOrPause();
     } // akhir langkah BLOK II / catatan (dilewati pada menu Ubah Variabel)
+
+    // STEP 5B: Buka Menu CATATAN di sidebar & Aktifkan Toggle "Tampilkan Anomali Usaha dan Keluarga"
+    await handleCatatanAnomaliSection(stepDelay);
+    await checkAbortOrPause();
 
     // MODAL KONFIRMASI MANUAL (Jika opsi checkbox diaktifkan)
     if (!apiFinalize && options.requireManualConfirm) {
