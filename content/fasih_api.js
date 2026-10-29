@@ -456,7 +456,10 @@
     const pj = await pr.json();
     const urls = []; (function w(v) { if (typeof v === 'string' && /^https?:/.test(v)) urls.push(v);
       else if (Array.isArray(v)) v.forEach(w); else if (v && typeof v === 'object') Object.values(v).forEach(w); })(pj);
-    if (!urls.length) throw new Error('URL upload FASIH tidak ditemukan (dokumen berstatus ' + (asg.assignment_status_alias || 'Approved/Completed') + ' — perlu di-Revoke)');
+    if (!urls.length) {
+      const curStatus = asg.assignment_status_alias || asg.assignment_status || asg.status || asg.status_alias || asg.status_name || 'Approved/Completed';
+      throw new Error('URL upload FASIH tidak ditemukan (dokumen berstatus ' + curStatus + ' — perlu di-Revoke)');
+    }
     const up = await fetch(urls[0], { method: 'PUT', credentials: 'omit',
       headers: { 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="${filename}"` },
       body: new Blob([zip], { type: 'application/zip' }) });
@@ -538,17 +541,21 @@
       }
     }
 
-    const plan = { assignmentId: row.assignmentId, code: asg.code_identity, status: asg.assignment_status_alias,
+    const rawStatus = asg.assignment_status_alias || asg.assignment_status || asg.status || asg.status_alias || asg.status_name || '';
+    const plan = { assignmentId: row.assignmentId, code: asg.code_identity, status: rawStatus || asg.assignment_status_alias || '',
       version: asg.submit_version_code, nChanges: changes.length, changes };
     if (!changes.length) return { ...plan, ok: true, dryRun, noChange: true };
 
     // Cek apakah assignment berstatus Approved secara ketat (bukan WAITING_APPROVAL / MENUNGGU)
-    const alias = String(asg.assignment_status_alias || '').trim().toUpperCase();
+    const alias = String(rawStatus || asg.assignment_status_alias || '').trim().toUpperCase();
     const isTrulyApproved = !skipApprovedCheck &&
                             (alias.includes('APPROVED') || alias.includes('DISETUJUI') || alias.includes('COMPLETED') || alias.includes('SELESAI')) &&
                             !alias.includes('WAITING') && !alias.includes('NEED') && !alias.includes('MENUNGGU');
-    if (isTrulyApproved && !dryRun) {
-      return { ...plan, ok: false, needRevoke: true, error: 'Assignment berstatus ' + (asg.assignment_status_alias || 'Approved') + '. Perlu di-Revoke terlebih dahulu.' };
+    if (isTrulyApproved) {
+      plan.needRevoke = true;
+      if (!dryRun) {
+        return { ...plan, ok: false, needRevoke: true, error: 'Assignment berstatus ' + (plan.status || 'Approved') + '. Perlu di-Revoke terlebih dahulu.' };
+      }
     }
 
     if (changes.length) doc.updatedAt = new Date().toISOString();

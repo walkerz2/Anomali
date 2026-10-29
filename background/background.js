@@ -1638,7 +1638,10 @@ const ringkasPerubahan = (changes) => (changes || []).slice(0, 8)
 
 // Hasil: { done: true } bila baris selesai di sini (uji coba / gagal), atau { done: false, note } untuk lanjut Kirim lewat form
 async function revokeViaForm(item, index) {
-  const targetUrl = formatEditUrl(item.link_fasih_sm || item.link, runnerState.options && runnerState.options.periodeId);
+  const rawUrl = String(item.link_fasih_sm || item.link || '').trim();
+  const editUrl = formatEditUrl(rawUrl, runnerState.options && runnerState.options.periodeId);
+  const reviewUrl = editUrl.replace(/\/edit$/i, '');
+  const targetUrl = reviewUrl || editUrl;
   await updateItemStatus(index, 'PROCESSING', 'Dokumen berstatus Approved/Completed — Membuka form untuk Revoke...');
   let tab = null;
   try {
@@ -1653,6 +1656,7 @@ async function revokeViaForm(item, index) {
         isActiveTabTest: false,
         revokeOnly: true,
         autoRevoke: true,
+        targetUrl: editUrl,
         mode: item.mode,
         targetUsaha: item.targetUsaha || ''
       }
@@ -1684,15 +1688,15 @@ async function runApiStep(item, index, { skipApprovedCheck = false } = {}) {
 
   const row = { assignmentId: id, values: item.apiValues || {}, remarks: item.apiRemarks || {}, namaUsaha: item.namaUsahaExcel || item.nama_usaha || '' };
   const autoNote = item.apiNoteCode || '#1';
-  const call = async (dr) => {
+  const call = async (dr, skipCheck = skipApprovedCheck) => {
     try {
-      let r = await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote, skipApprovedCheck });
+      let r = await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote, skipApprovedCheck: skipCheck });
       if (r && (r.status === 'ERROR' || r.status === 'DISCONNECTED') && isApiSessionExpiredError(r.error) && runnerState.status === 'RUNNING') {
         console.log('[TUNTAS BG] Terdeteksi sesi kedaluwarsa saat callApiJob. Memulai pemulihan sesi...');
         const recovered = await recoverApiSession(index);
         if (recovered && runnerState.status === 'RUNNING') {
           await updateItemStatus(index, 'PROCESSING', 'Sesi berhasil dipulihkan via SSO Eksternal! Menyimpan perubahan lewat API...');
-          r = await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote, skipApprovedCheck });
+          r = await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote, skipApprovedCheck: skipCheck });
         }
       }
       return r;
@@ -1705,7 +1709,7 @@ async function runApiStep(item, index, { skipApprovedCheck = false } = {}) {
         if (recovered && runnerState.status === 'RUNNING') {
           await updateItemStatus(index, 'PROCESSING', 'Sesi berhasil dipulihkan via SSO Eksternal! Menyimpan perubahan lewat API...');
           try {
-            return await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote, skipApprovedCheck });
+            return await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote, skipApprovedCheck: skipCheck });
           } catch (err2) {
             return { status: 'ERROR', error: err2.message || String(err2) };
           }
@@ -1732,7 +1736,7 @@ async function runApiStep(item, index, { skipApprovedCheck = false } = {}) {
       revokeNote = ' | Revoke ✓';
     }
   }
-  if (!res) res = await call(dryRun);
+  if (!res) res = await call(dryRun, Boolean(revokeNote));
 
   // Fallback: jika respons API menghasilkan galat dokumen terkunci atau presign URL upload tidak ditemukan
   if (!res || res.status !== 'DONE') {
@@ -1745,7 +1749,7 @@ async function runApiStep(item, index, { skipApprovedCheck = false } = {}) {
       const rv = await revokeViaForm(item, index);
       if (rv.ok) {
         revokeNote = ' | Revoke ✓';
-        res = await call(false);
+        res = await call(false, true);
       }
     }
   }
@@ -1960,11 +1964,13 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
       : '';
 
     const isRevokeStep = (stepName) => [
+    'REVOKE_FOUND',
     'REVOKE_START',
     'REVOKE_CLICK',
     'REVOKE_CONFIRM',
     'REVOKE_CONFIRM_CLICK',
     'REVOKE_SUCCESS',
+    'REVOKE_DONE',
     'AUTO_REVOKE',
     'AUTO_REVOKE_DONE',
     'STEP_6_REVOKE_DIRECT',

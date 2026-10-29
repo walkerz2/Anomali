@@ -1,7 +1,7 @@
 # CONTEXT.MD — TUNTAS SE2026 (Tracking dan Tindak Lanjut Anomali Sensus)
 
 > **Dokumen Konteks Proyek & Panduan Teknis Komprehensif**  
-> Terakhir diperbarui: 29 Oktober 2026, 21:38 WITA (Asia/Makassar / UTC+8)
+> Terakhir diperbarui: 29 Oktober 2026, 23:45 WITA (Asia/Makassar / UTC+8)
 > Zona Waktu Sistem: Waktu Indonesia Tengah (WITA / Asia/Makassar / UTC+8)
 
 ---
@@ -225,10 +225,12 @@ Server FASIH-SM BPS sering kali mengalami lonjakan beban respon (*traffic spikes
 - **Auto Fill Kredensial**: Mengisi kolom email & kata sandi dengan simulasi pengetikan input, lalu menekan tombol masuk secara otomatis.
 - **Auto-Recovery Sesi Mode API (Ubah Variabel)**: Jika sesi FASIH-SM kedaluwarsa saat eksekusi perubahan variabel di latar belakang (HTTP 401/403 atau "Pastikan sudah login FASIH"), sistem mendeteksi kegagalan autentikasi secara proaktif, mengaktifkan tab bantu ke halaman login, mengeksekusi alur login SSO Eksternal secara otomatis hingga mendarat kembali di FASIH-SM, lalu mengulang (*retry*) penyimpanan API secara transparan tanpa menandai baris sebagai FAILED.
 
-### 6.4 Auto Revoke & Auto Approve
-- Jika assignment berstatus `Approved` saat hendak diperbaiki (sehingga tombol Edit terkunci), bot otomatis mencari dan menekan tombol **Revoke** di pojok kanan bawah toolbar, mengonfirmasi modal revoke, memuat ulang form, melakukan perbaikan, submit ulang, dan melakukan **Approve** kembali.
-- **Mode Ubah Variabel (API)**: Memeriksa status assignment secara proaktif (`asg.assignment_status_alias`). Jika assignment sudah berstatus `Approved`, bot membuka tab review/edit untuk mengeksekusi Auto Revoke terlebih dahulu sebelum menulis perubahan via REST API FASIH, lalu memverifikasi form, melakukan submit visual, dan auto-approve kembali.
+### 6.4 Auto Revoke, Alur Transisi `/edit`, & Auto Approve
+- **Deteksi Dini Tombol Revoke (Zero-Timeout)**: Di `content.js`, saat membuka URL edit maupun review, bot memantau tombol Revoke di pojok kanan bawah secara simultan dengan pengecekan form. Jika terdeteksi dokumen `Approved` / `Completed`, bot tidak membuang waktu 20 detik menunggu blok form yang terkunci, melainkan langsung mengeksekusi alur Revoke secara instan.
+- **Alur Transisi Otomatis ke `/edit` Pasca-Revoke**: Begitu tombol Revoke berhasil diklik dan dikonfirmasi, kuesioner terbuka kembali di backend FASIH. Bot secara cerdas langsung melanjutkan membuka atau mengalihkan halaman ke tautan FASIH dengan imbuhan `/edit` di bagian akhir link (`https://fasih-sm.bps.go.id/app/assignment/{spId}/{asgId}/edit`). Pada URL `/edit` ini formulir kuisioner aktif dimuat untuk melakukan pengubahan variabel (nilai, KBLI, catatan, kirim, dan approve).
+- **Penanganan Status Komprehensif pada Mode API**: Pengecekan status kuesioner kini memeriksa seluruh variasi field API FASIH (`asg.assignment_status_alias`, `asg.assignment_status`, `asg.status`, `asg.status_alias`, `asg.status_name`). Jika terdeteksi `Approved`/`Completed`/`Selesai`, flag `needRevoke` langsung aktif bahkan saat *dry run*, dan dokumen di-revoke terlebih dahulu sebelum penulisan payload S3 via REST API.
 - **Fallback Tanpa Tombol Revoke (Belum Approved)**: Jika tombol Revoke tidak ditemukan di toolbar (kuesioner ternyata belum di-Approve, misalnya berstatus draf atau menunggu approval), bot tidak menandai gagal melainkan secara cerdas langsung melanjutkan penyimpanan perubahan variabel via API dan pengiriman formulir.
+- **Auto-Approve Pasca Submit**: Jika opsi auto-approve diaktifkan, setelah kuesioner sukses dikirim via form, bot mengklik "Kembali ke Review", mendeteksi tombol Approve, mengonfirmasi modal approve, dan menyelesaikan baris antrian.
 
 ### 6.5 Skalabilitas Dataset Masif (6.000–7.000+ Baris) & Virtual Windowing
 - **Pembersihan & Sanitasi URL**: Seluruh link dan ID kuesioner dibersihkan dari whitespace, tab, dan newline (`\r\n\t`) yang sering muncul dari copy-paste Excel. Jika link kosong namun `assignment_id` valid, ekstensi otomatis menyusun link edit standar FASIH.

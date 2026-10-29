@@ -4151,9 +4151,19 @@
   }
 
   function findRevokeButton() {
+    // 0. Cek tombol eksplisit di seluruh dokumen terlebih dahulu (termasuk toolbar atas/bawah)
+    const allButtons = Array.from(document.querySelectorAll('button, [role="button"], a'));
+    for (const el of allButtons) {
+      if (el.closest('[role="dialog"], [role="alertdialog"], .modal')) continue;
+      const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''} ${el.getAttribute('data-tooltip') || ''} ${el.innerText || ''}`.toLowerCase().trim();
+      if (label === 'revoke' || label.includes('revoke assignment') || label.includes('tarik kembali') || label.includes('batalkan approve') || label.includes('unapprove')) {
+        return el;
+      }
+    }
+
     const candidates = getFloatingBottomRightCandidates();
 
-    // 1. Label / Title / Tooltip eksplisit "revoke"
+    // 1. Label / Title / Tooltip eksplisit "revoke" di floating toolbar
     for (const el of candidates) {
       const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''} ${el.getAttribute('data-tooltip') || ''} ${el.innerText || ''}`.toLowerCase();
       if (label.includes('revoke') || label.includes('tarik kembali') || label.includes('batalkan approve') || label.includes('unapprove')) {
@@ -4218,7 +4228,7 @@
   }
 
   function findRevokeConfirmButton() {
-    // 1. Cari modal/dialog konfirmasi Revoke ("Revoke Assignment?" -> tombol "Konfirmasi")
+    // 1. Cari modal/dialog konfirmasi Revoke ("Revoke Assignment?" -> tombol "Konfirmasi" / "Ya, Revoke" / "Revoke")
     const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"], [data-kb-dialog-content], [data-state="open"], .modal, div[class*="modal"], div[class*="dialog"]'));
     for (const d of dialogs) {
       if (d.offsetParent === null && getComputedStyle(d).position !== 'fixed') continue;
@@ -4227,28 +4237,31 @@
         const btns = Array.from(d.querySelectorAll('button, [role="button"]'));
         for (const b of btns) {
           const bTxt = (b.textContent || '').trim().toLowerCase();
-          if (bTxt === 'konfirmasi' || bTxt === 'ya' || bTxt === 'ya, revoke' || bTxt.includes('konfirmasi')) {
+          if (bTxt === 'konfirmasi' || bTxt === 'ya' || bTxt === 'ya, revoke' || bTxt.includes('konfirmasi') || bTxt === 'revoke') {
             return b;
           }
         }
       }
     }
 
-    // 2. Fallback: cari tombol dengan teks "Konfirmasi"
+    // 2. Fallback: cari tombol dengan teks "Konfirmasi", "Ya, Revoke", atau "Revoke"
     const allButtons = Array.from(document.querySelectorAll('button, [role="button"]'));
     return allButtons.find(b => {
       const bTxt = (b.textContent || '').trim().toLowerCase();
       const isVisible = (b.offsetWidth > 0 && b.offsetHeight > 0) || getComputedStyle(b).position === 'fixed';
-      return isVisible && (bTxt === 'konfirmasi' || bTxt === 'ya, revoke');
+      return isVisible && (bTxt === 'konfirmasi' || bTxt === 'ya, revoke' || bTxt === 'revoke');
     });
   }
 
-    // 1b. Revoke otomatis jika dokumen sudah Approved / Completed
+  // 1b. Revoke otomatis jika dokumen sudah Approved / Completed
   async function handleRevokeIfNeeded(stepDelay = 1500) {
     const revokeBtn = await findRevokeButtonDeep(5000);
     if (!revokeBtn) return { revoked: false };
 
-    notifyStep('REVOKE_FOUND', 'Assignment sudah Completed/Approved — melakukan Revoke dulu sebelum lanjut...', 'warning');
+    notifyStep('REVOKE_FOUND', 'Dokumen berstatus Approved/Completed — Melakukan Revoke terlebih dahulu...', 'warning');
+    try {
+      chrome.runtime.sendMessage({ action: 'REVOKE_TRIGGERED' });
+    } catch (_) {}
     await randomSleep(300, 600);
     await humanClick(revokeBtn);
     await randomSleep(500, 900);
@@ -4273,7 +4286,7 @@
       notifyStep('REVOKE_FAILED', 'Sudah klik Revoke tapi tombolnya masih muncul setelah 15 detik — kemungkinan gagal atau perlu konfirmasi manual.', 'error');
       return { revoked: false, failed: true };
     }
-    notifyStep('REVOKE_DONE', 'Revoke berhasil. Melanjutkan alur...', 'success');
+    notifyStep('REVOKE_DONE', 'Revoke berhasil dikonfirmasi!', 'success');
     await sleep(getJitterDelay(stepDelay || 1500));
     return { revoked: true };
   }
@@ -4472,6 +4485,7 @@ async function executeRevoke(options = {}) {
       let formOrSso = await waitForElement(() => {
         if (isAnyFormBlockPresent()) return 'FORM';
         if (options.autoSsoLogin !== false && (findSsoEksternalButton() || findSsoPasswordInput() || findSessionExpiredElement() || isLoginPage())) return 'SSO';
+        if (options.autoRevoke !== false && findRevokeButton()) return 'REVOKE';
         return null;
       }, 20000);
 
@@ -4479,6 +4493,32 @@ async function executeRevoke(options = {}) {
         await randomSleep(1800, 2600);
         if (isAnyFormBlockPresent()) formOrSso = 'FORM';
         else if (options.autoSsoLogin !== false && (findSsoEksternalButton() || findSsoPasswordInput() || findSessionExpiredElement() || isLoginPage())) formOrSso = 'SSO';
+        else if (options.autoRevoke !== false && findRevokeButton()) formOrSso = 'REVOKE';
+      }
+
+      // Deteksi dini: Dokumen berstatus Approved/Completed (toolbar menampilkan tombol Revoke)
+      if (formOrSso === 'REVOKE' || (options.autoRevoke !== false && findRevokeButton())) {
+        notifyStep('REVOKE_FOUND', 'Dokumen berstatus Approved/Completed — Menjalankan Revoke terlebih dahulu...', 'warning');
+        const revokeRes = await handleRevokeIfNeeded(stepDelay);
+        if (revokeRes.failed) {
+          return {
+            success: false,
+            error: 'REVOKE_GAGAL: Assignment berstatus Completed/Approved admin, tapi Revoke gagal/tidak terkonfirmasi otomatis. Cek & revoke manual, lalu ulangi baris ini.'
+          };
+        }
+        if (options.revokeOnly) {
+          return { success: true, revoked: true, message: 'Revoke berhasil' };
+        }
+        // Aturan alur: setelah berhasil revoke, tetap lanjut buka link FASIH dengan menambahkan "/edit" dibagian akhir link untuk pengubahan variabel
+        const curUrl = window.location.href;
+        const targetEditUrl = options.targetUrl || getEditUrl(curUrl) || (curUrl.split('?')[0].replace(/\/+$/, '') + '/edit');
+        notifyStep('STEP_1_REDIRECT', `Revoke berhasil! Melanjutkan membuka link /edit untuk pengubahan variabel: ${targetEditUrl}...`, 'progress');
+        return {
+          success: true,
+          revoked: true,
+          needRedirectEdit: true,
+          editUrl: targetEditUrl
+        };
       }
 
       if (formOrSso !== 'FORM') {
@@ -4587,9 +4627,36 @@ async function executeRevoke(options = {}) {
             if (options.autoSsoLogin !== false && (findSsoEksternalButton() || findSsoPasswordInput() || findSessionExpiredElement() || isLoginPage())) {
               return { type: 'SSO' };
             }
+            if (options.autoRevoke !== false && findRevokeButton()) {
+              return { type: 'REVOKE' };
+            }
             const b = findEditButton();
             return b ? { type: 'EDIT', btn: b } : null;
           }, 8000);
+
+          if (editOrSso && editOrSso.type === 'REVOKE') {
+            notifyStep('REVOKE_FOUND', 'Dokumen berstatus Approved/Completed — Menjalankan Revoke terlebih dahulu...', 'warning');
+            const revokeRes = await handleRevokeIfNeeded(stepDelay);
+            if (revokeRes.failed) {
+              return {
+                success: false,
+                error: 'REVOKE_GAGAL: Assignment berstatus Completed/Approved admin, tapi Revoke gagal/tidak terkonfirmasi otomatis. Cek & revoke manual, lalu ulangi baris ini.'
+              };
+            }
+            if (options.revokeOnly) {
+              return { success: true, revoked: true, message: 'Revoke berhasil' };
+            }
+            // Sesuai alur: setelah berhasil revoke, tetap lanjut buka link FASIH dengan menambahkan /edit untuk pengubahan variabel
+            const curUrl = window.location.href;
+            const targetEditUrl = options.targetUrl || getEditUrl(curUrl) || (curUrl.split('?')[0].replace(/\/+$/, '') + '/edit');
+            notifyStep('STEP_1_REDIRECT', `Revoke berhasil! Melanjutkan membuka link /edit untuk pengubahan variabel: ${targetEditUrl}...`, 'progress');
+            return {
+              success: true,
+              revoked: true,
+              needRedirectEdit: true,
+              editUrl: targetEditUrl
+            };
+          }
 
           if (editOrSso && editOrSso.type === 'EDIT' && editOrSso.btn) {
             notifyStep('STEP_1', 'Tombol Review / Edit ditemukan. Mengklik...', 'progress');
@@ -4665,6 +4732,17 @@ async function executeRevoke(options = {}) {
     // Tahap Revoke saja (menu API: dokumen di-Revoke dulu, baru data disimpan lewat API)
     if (options.revokeOnly) {
       return { success: true, revoked: !!revokeResult.revoked, message: revokeResult.revoked ? 'Revoke berhasil' : 'Tombol Revoke tidak ditemukan (dokumen mungkin sudah bisa diedit)' };
+    }
+    if (revokeResult.revoked) {
+      const curUrl = window.location.href;
+      const targetEditUrl = options.targetUrl || getEditUrl(curUrl) || (curUrl.split('?')[0].replace(/\/+$/, '') + '/edit');
+      notifyStep('STEP_1_REDIRECT', `Revoke berhasil! Melanjutkan membuka link /edit untuk pengubahan variabel: ${targetEditUrl}...`, 'progress');
+      return {
+        success: true,
+        revoked: true,
+        needRedirectEdit: true,
+        editUrl: targetEditUrl
+      };
     }
 
     // Menu "Ubah Variabel (API)": data sudah diubah lewat API sebelum form dibuka.
