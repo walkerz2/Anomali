@@ -1637,6 +1637,45 @@ const ringkasPerubahan = (changes) => (changes || []).slice(0, 8)
   ((changes || []).length > 8 ? ` (+${changes.length - 8} lagi)` : '');
 
 // Hasil: { done: true } bila baris selesai di sini (uji coba / gagal), atau { done: false, note } untuk lanjut Kirim lewat form
+async function revokeViaForm(item, index) {
+  const targetUrl = formatEditUrl(item.link_fasih_sm || item.link, runnerState.options && runnerState.options.periodeId);
+  await updateItemStatus(index, 'PROCESSING', 'Dokumen berstatus Approved/Completed — Membuka form untuk Revoke...');
+  let tab = null;
+  try {
+    tab = await chrome.tabs.create({ url: targetUrl, active: true });
+    chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => {});
+    await waitForTabComplete(tab.id, 35000);
+    await randomSleep(2000, 3200);
+    const msg = {
+      action: 'EXECUTE_FASIH_WORKFLOW',
+      options: {
+        ...runnerState.options,
+        isActiveTabTest: false,
+        revokeOnly: true,
+        autoRevoke: true,
+        mode: item.mode,
+        targetUsaha: item.targetUsaha || ''
+      }
+    };
+    let res = await sendTabMessageWithRetry(tab.id, msg);
+    if (res && res.status === 'DONE' && res.result && res.result.needRedirectEdit && res.result.editUrl) {
+      await chrome.tabs.update(tab.id, { url: res.result.editUrl });
+      await waitForTabComplete(tab.id, 35000);
+      await randomSleep(2000, 3200);
+      res = await sendTabMessageWithRetry(tab.id, msg);
+    }
+    if (!res || res.status !== 'DONE') return { ok: false, error: (res && res.error) || 'form tidak merespons' };
+    if (!res.result || res.result.success === false) return { ok: false, error: (res.result && res.result.error) || 'Revoke gagal' };
+    if (!res.result.revoked) return { ok: false, error: 'tombol Revoke tidak ditemukan di form' };
+    await randomSleep(1500, 2500);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  } finally {
+    if (tab && tab.id) chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
 async function runApiStep(item, index, { skipApprovedCheck = false } = {}) {
   const dryRun = runnerState.options.apiDryRun !== false;
   const id = assignmentIdOf(item);
@@ -1675,7 +1714,42 @@ async function runApiStep(item, index, { skipApprovedCheck = false } = {}) {
       return { status: 'ERROR', error: errMsg };
     }
   };
-  let res = await call(dryRun);
+  // v3.0: dokumen yang sudah Approved/Completed di-Revoke dulu (lewat tombol Revoke di form), baru disimpan
+  let res = null, revokeNote = '';
+  if (dryRun || runnerState.options.autoRevoke !== false) {
+    const cek = await call(true);
+    const st = cek && cek.status === 'DONE' ? String((cek.result && (cek.result.status || cek.result.statusAfter)) || '') : '';
+    const perluRevoke = (cek && cek.result && cek.result.needRevoke) || /APPROVED|COMPLETED|SELESAI|DISETUJUI/i.test(st);
+    if (dryRun) {
+      res = cek;
+      if (perluRevoke) revokeNote = runnerState.options.autoRevoke !== false ? ` · status ${st || 'Approved'} → akan di-Revoke dulu` : ` · status ${st || 'Approved'} (Revoke otomatis mati)`;
+    } else if (perluRevoke) {
+      const rv = await revokeViaForm(item, index);
+      if (!rv.ok) {
+        await updateItemStatus(index, 'FAILED', `REVOKE_GAGAL: ${rv.error} — data TIDAK diubah. Revoke manual lalu ulangi baris ini.`);
+        return { done: true };
+      }
+      revokeNote = ' | Revoke ✓';
+    }
+  }
+  if (!res) res = await call(dryRun);
+
+  // Fallback: jika respons API menghasilkan galat dokumen terkunci atau presign URL upload tidak ditemukan
+  if (!res || res.status !== 'DONE') {
+    const isLockedError = res && res.error && (
+      /URL upload FASIH tidak ditemukan/i.test(String(res.error)) ||
+      /APPROV|COMPLETED|SELESAI|DISETUJUI|needRevoke/i.test(String(res.error))
+    );
+    if (isLockedError && !dryRun && runnerState.options.autoRevoke !== false && !revokeNote) {
+      console.log('[TUNTAS BG] Terdeteksi dokumen terkunci/Approved (URL upload tidak ditemukan). Mencoba Revoke otomatis...');
+      const rv = await revokeViaForm(item, index);
+      if (rv.ok) {
+        revokeNote = ' | Revoke ✓';
+        res = await call(false);
+      }
+    }
+  }
+
   let verifikasi = '';
   for (let coba = 1; coba <= 2 && res && res.status === 'DISCONNECTED' && runnerState.status === 'RUNNING'; coba++) {
     const jejak = apiHelperNav.length ? ` [tab bantu: ${apiHelperNav.slice(-3).join(' → ')}]` : '';
@@ -1724,7 +1798,7 @@ async function runApiStep(item, index, { skipApprovedCheck = false } = {}) {
   const ringkas = r.noChange ? 'tidak ada perubahan (nilai sudah sama)' : `${r.nChanges} perubahan: ${ringkasPerubahan(r.changes)}`;
 
   if (dryRun) {
-    await updateItemStatus(index, 'DRYRUN', `UJI ${r.code || ''} (v${r.version}): ${ringkas}`);
+    await updateItemStatus(index, 'DRYRUN', `UJI ${r.code || ''} (v${r.version}): ${ringkas}${revokeNote}`);
     return { done: true };
   }
   if (r.backup) {
@@ -1740,7 +1814,7 @@ async function runApiStep(item, index, { skipApprovedCheck = false } = {}) {
     await chrome.storage.local.set({ apiBackups: backups });
   }
   if (verifikasi) return { done: false, note: `API tersimpan${verifikasi}, v${r.versionAfter}` };
-  return { done: false, note: r.noChange ? 'API: tidak ada perubahan' : `API v${r.version}→v${r.versionAfter}: ${ringkas}` };
+  return { done: false, note: (r.noChange ? 'API: tidak ada perubahan' : `API v${r.version}→v${r.versionAfter}: ${ringkas}`) + revokeNote };
 }
 
 async function restoreApiBackups(ids, dryRun) {
@@ -1800,92 +1874,14 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
   let apiNote = '';
   let tab = null;
   if (item.mode === 'API') {
-    let pre = await runApiStep(item, index);
+    const pre = await runApiStep(item, index);
     if (pre.done) {
       return { tabIdToClose: prevTabIdToClose };
     }
-
-    // Auto Revoke jika assignment sudah Approved sebelum simpan via API
-    if (pre.needRevoke) {
-      if (runnerState.options.autoRevoke === false) {
-        await updateItemStatus(index, 'SKIPPED', 'Assignment sudah di-Approve (Auto Revoke tidak aktif)');
-        return { tabIdToClose: prevTabIdToClose };
-      }
-
-      await updateItemStatus(index, 'PROCESSING', 'Assignment berstatus Approved. Memproses Auto Revoke...');
-      let revokeTab = null;
-      try {
-        revokeTab = await chrome.tabs.create({ url: targetUrl, active: true });
-        if (prevTabIdToClose && prevTabIdToClose !== revokeTab.id) {
-          await safeCloseTab(prevTabIdToClose, { allowSingleTabWindow: true });
-          prevTabIdToClose = null;
-        }
-        runnerState.activeTabId = revokeTab.id;
-        runnerState.activeTargetUrl = targetUrl;
-        await chrome.storage.local.set({ runnerState });
-
-        await waitForTabComplete(revokeTab.id, 35000);
-        await randomSleep(2000, 3000);
-
-        let revRes = await sendTabMessageWithRetry(revokeTab.id, {
-          action: 'REVOKE_ASSIGNMENT',
-          options: runnerState.options
-        }, 5);
-
-        let isRevOk = (revRes && revRes.status === 'DONE' && revRes.result && revRes.result.success) ||
-                      (revRes && revRes.status === 'DISCONNECTED' && runnerState.tabRevokedRecently);
-
-        if (!isRevOk) {
-          const reviewUrl = targetUrl.split('?')[0].split('#')[0].replace(/\/+$/, '').replace(/\/edit$/i, '');
-          if (reviewUrl && reviewUrl !== targetUrl) {
-            await chrome.tabs.update(revokeTab.id, { url: reviewUrl });
-            await waitForTabComplete(revokeTab.id, 35000);
-            await randomSleep(1800, 2600);
-            revRes = await sendTabMessageWithRetry(revokeTab.id, {
-              action: 'REVOKE_ASSIGNMENT',
-              options: runnerState.options
-            }, 5);
-            isRevOk = (revRes && revRes.status === 'DONE' && revRes.result && revRes.result.success) ||
-                      (revRes && revRes.status === 'DISCONNECTED');
-          }
-        }
-
-        if (!isRevOk) {
-          // Tombol Revoke tidak ada di toolbar kanan bawah (baik di /edit maupun reviewUrl).
-          // Artinya: Dokumen BELUM di-Approve (sudah terbuka untuk langsung diedit)!
-          console.log('[FASIH BG] Tombol Revoke tidak ditemukan: assignment belum di-Approve. Langsung melanjutkan penyimpanan variabel via API...');
-          await updateItemStatus(index, 'PROCESSING', 'Assignment belum di-Approve. Menyimpan perubahan variabel via API...');
-        } else {
-          await updateItemStatus(index, 'PROCESSING', 'Revoke berhasil! Menyimpan perubahan variabel via API...');
-        }
-
-        // Jalankan penyimpanan variabel via API (skipApprovedCheck: true karena tab sudah diverifikasi langsung)
-        pre = await runApiStep(item, index, { skipApprovedCheck: true });
-        if (pre.done) {
-          return { tabIdToClose: revokeTab.id };
-        }
-        apiNote = (pre.note || '') + (isRevOk ? ' (setelah Revoke)' : '');
-
-        if (!runnerState.options.autoSubmitSurvey) {
-          await updateItemStatus(index, 'SUCCESS', `Tersimpan lewat API (tanpa Kirim form) | ${apiNote}`);
-          return { tabIdToClose: revokeTab.id };
-        }
-
-        // Muat ulang formulir /edit untuk verifikasi & submit
-        await chrome.tabs.update(revokeTab.id, { url: targetUrl });
-        await waitForTabComplete(revokeTab.id, 35000);
-        await randomSleep(2000, 3000);
-        tab = revokeTab;
-      } catch (errRev) {
-        await updateItemStatus(index, 'FAILED', `Gagal saat proses Revoke: ${errRev.message || errRev}`);
-        return { tabIdToClose: revokeTab ? revokeTab.id : prevTabIdToClose };
-      }
-    } else {
-      apiNote = pre.note;
-      if (!runnerState.options.autoSubmitSurvey) {
-        await updateItemStatus(index, 'SUCCESS', `Tersimpan lewat API (tanpa Kirim form) | ${apiNote}`);
-        return { tabIdToClose: prevTabIdToClose };
-      }
+    apiNote = pre.note;
+    if (!runnerState.options.autoSubmitSurvey) {
+      await updateItemStatus(index, 'SUCCESS', `Tersimpan lewat API (tanpa Kirim form) | ${apiNote}`);
+      return { tabIdToClose: prevTabIdToClose };
     }
   }
 

@@ -4243,7 +4243,42 @@
     });
   }
 
-  async function executeRevoke(options = {}) {
+    // 1b. Revoke otomatis jika dokumen sudah Approved / Completed
+  async function handleRevokeIfNeeded(stepDelay = 1500) {
+    const revokeBtn = await findRevokeButtonDeep(5000);
+    if (!revokeBtn) return { revoked: false };
+
+    notifyStep('REVOKE_FOUND', 'Assignment sudah Completed/Approved — melakukan Revoke dulu sebelum lanjut...', 'warning');
+    await randomSleep(300, 600);
+    await humanClick(revokeBtn);
+    await randomSleep(500, 900);
+
+    const confirmBtn = await waitForElement(findRevokeConfirmButton, 5000, 300);
+    if (confirmBtn) {
+      notifyStep('REVOKE_CONFIRM', `Mengonfirmasi Revoke ("${(confirmBtn.textContent || '').trim()}")...`, 'progress');
+      await humanClick(confirmBtn);
+      await randomSleep(600, 1000);
+    }
+
+    // Tunggu sampai tombol Revoke tidak lagi muncul di toolbar (berarti sudah berhasil dibuka kembali)
+    const start = Date.now();
+    let stillThere = true;
+    while (Date.now() - start < 15000) {
+      await checkAbortOrPause();
+      stillThere = Boolean(await findRevokeButtonDeep(800));
+      if (!stillThere) break;
+      await sleep(500);
+    }
+    if (stillThere) {
+      notifyStep('REVOKE_FAILED', 'Sudah klik Revoke tapi tombolnya masih muncul setelah 15 detik — kemungkinan gagal atau perlu konfirmasi manual.', 'error');
+      return { revoked: false, failed: true };
+    }
+    notifyStep('REVOKE_DONE', 'Revoke berhasil. Melanjutkan alur...', 'success');
+    await sleep(getJitterDelay(stepDelay || 1500));
+    return { revoked: true };
+  }
+
+async function executeRevoke(options = {}) {
     notifyStep('REVOKE_START', 'Mencari tombol Revoke di pojok kanan bawah...', 'progress');
     let btn = await findRevokeButtonDeep(6000);
     if (!btn) {
@@ -4616,6 +4651,20 @@
           notifyStep('STEP_1', 'Formulir kuisioner berhasil dibuka!', 'progress');
         }
       }
+    }
+
+    // STEP 1b: Assignment sudah Completed/Approved admin -> toolbar kanan cuma ada tombol Revoke.
+    // Revoke dulu supaya bisa diedit, baru lanjut alur normal.
+    const revokeResult = options.autoRevoke === false ? { revoked: false } : await handleRevokeIfNeeded(stepDelay);
+    if (revokeResult.failed) {
+      return {
+        success: false,
+        error: 'REVOKE_GAGAL: Assignment berstatus Completed/Approved admin, tapi Revoke gagal/tidak terkonfirmasi otomatis. Cek & revoke manual, lalu ulangi baris ini.'
+      };
+    }
+    // Tahap Revoke saja (menu API: dokumen di-Revoke dulu, baru data disimpan lewat API)
+    if (options.revokeOnly) {
+      return { success: true, revoked: !!revokeResult.revoked, message: revokeResult.revoked ? 'Revoke berhasil' : 'Tombol Revoke tidak ditemukan (dokumen mungkin sudah bisa diedit)' };
     }
 
     // Menu "Ubah Variabel (API)": data sudah diubah lewat API sebelum form dibuka.
