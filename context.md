@@ -221,6 +221,7 @@ Server FASIH-SM BPS sering kali mengalami lonjakan beban respon (*traffic spikes
   - Menggunakan simulasi penekanan multi-event (`pointerdown`, `pointerup`, `mousedown`, `mouseup`, `click`) dan fallback navigasi `window.location.assign(href)`.
   - Polling rendering SPA Nuxt hingga 8 detik (interval 500ms).
 - **Auto Fill Kredensial**: Mengisi kolom email & kata sandi dengan simulasi pengetikan input, lalu menekan tombol masuk secara otomatis.
+- **Auto-Recovery Sesi Mode API (Ubah Variabel)**: Jika sesi FASIH-SM kedaluwarsa saat eksekusi perubahan variabel di latar belakang (HTTP 401/403 atau "Pastikan sudah login FASIH"), sistem mendeteksi kegagalan autentikasi secara proaktif, mengaktifkan tab bantu ke halaman login, mengeksekusi alur login SSO Eksternal secara otomatis hingga mendarat kembali di FASIH-SM, lalu mengulang (*retry*) penyimpanan API secara transparan tanpa menandai baris sebagai FAILED.
 
 ### 6.4 Auto Revoke & Auto Approve
 - Jika assignment berstatus `Approved` saat hendak diperbaiki (sehingga tombol Edit terkunci), bot otomatis mencari dan menekan tombol **Revoke** di pojok kanan bawah toolbar, mengonfirmasi modal revoke, memuat ulang form, melakukan perbaikan, submit ulang, dan melakukan **Approve** kembali.

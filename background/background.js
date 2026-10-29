@@ -1456,13 +1456,144 @@ function assignmentIdOf(item) {
   return ids.length ? ids[ids.length - 1] : null;
 }
 
+// Helper deteksi apakah pesan galat API mengindikasikan sesi login kedaluwarsa atau token habis
+function isApiSessionExpiredError(errMsg) {
+  const str = String(errMsg || '').toLowerCase();
+  if (!str) return false;
+  return (
+    str.includes('401') ||
+    str.includes('403') ||
+    str.includes('pastikan sudah login') ||
+    str.includes('unauthorized') ||
+    str.includes('unauthenticated') ||
+    str.includes('sesi') ||
+    str.includes('session') ||
+    str.includes('token expired') ||
+    str.includes('jwt expired') ||
+    str.includes('login kembali') ||
+    str.includes('auth error') ||
+    str.includes('forbidden')
+  );
+}
+
+// Fungsi pemulihan sesi FASIH via SSO Eksternal secara otomatis untuk alur API
+async function recoverApiSession(index = null) {
+  if (runnerState.status !== 'RUNNING') return false;
+
+  console.log('[TUNTAS BG] Sesi FASIH kedaluwarsa terdeteksi. Memulai pemulihan sesi via SSO Eksternal...');
+  if (index !== null) {
+    await updateItemStatus(index, 'PROCESSING', 'Sesi FASIH kedaluwarsa. Membuka login SSO Eksternal...');
+  }
+  broadcastToPopup({
+    action: 'UPDATE_STEP',
+    step: 'STEP_SSO',
+    details: 'Sesi FASIH kedaluwarsa. Membuka dan memproses login SSO Eksternal...'
+  });
+
+  const loginUrl = 'https://fasih-sm.bps.go.id/login';
+  let helperTab = null;
+
+  if (apiHelperTabId) {
+    try {
+      helperTab = await chrome.tabs.get(apiHelperTabId);
+    } catch (_) {
+      helperTab = null;
+    }
+  }
+
+  // Jika tab bantu belum ada atau tertutup, buat tab baru yang ACTIVE agar login terlihat oleh pengguna
+  if (!helperTab) {
+    try {
+      const newTab = await chrome.tabs.create({ url: loginUrl, active: true });
+      apiHelperTabId = newTab.id;
+      helperTab = newTab;
+    } catch (e) {
+      console.warn('[TUNTAS BG] Gagal membuat tab login SSO:', e);
+      return false;
+    }
+  } else {
+    // Aktifkan tab yang ada agar pengguna melihat proses login SSO
+    try {
+      await chrome.tabs.update(helperTab.id, { active: true });
+      const curUrl = helperTab.url || '';
+      // Navigasikan ke /login jika tab belum berada di URL login / SSO
+      if (!isSsoOrLoginUrl(curUrl) && !isExternalSsoIdpUrl(curUrl)) {
+        await chrome.tabs.update(helperTab.id, { url: loginUrl });
+      }
+    } catch (e) {
+      console.warn('[TUNTAS BG] Gagal mengaktifkan tab bantu:', e);
+    }
+  }
+
+  apiHelperNav = [];
+  await waitForTabComplete(helperTab.id, 35000);
+  await randomSleep(1500, 2500);
+
+  // Pantau dan pemicu alur login SSO hingga mendarat kembali di FASIH-SM (maks 45 detik)
+  const maxWaitMs = 45000;
+  const startTime = Date.now();
+  let landedUrl = '';
+
+  while (Date.now() - startTime < maxWaitMs) {
+    if (runnerState.status === 'STOPPED' || runnerState.status === 'PAUSED') {
+      return false;
+    }
+
+    let curTab = null;
+    try {
+      curTab = await chrome.tabs.get(helperTab.id);
+    } catch (_) {
+      break;
+    }
+
+    const curUrl = (curTab && curTab.url) || '';
+
+    // Jika sudah mendarat kembali di fasih-sm dan bukan URL login/SSO, sesi berhasil dipulihkan
+    if (curUrl && curTab.status === 'complete' && curUrl.toLowerCase().includes('fasih-sm.bps.go.id') && !isSsoOrLoginUrl(curUrl)) {
+      landedUrl = curUrl;
+      break;
+    }
+
+    // Jika berada di halaman login FASIH atau IdP SSO Eksternal BPS, picu aksi auto-login
+    if (isSsoOrLoginUrl(curUrl) || isExternalSsoIdpUrl(curUrl)) {
+      try {
+        await chrome.tabs.sendMessage(helperTab.id, {
+          action: 'TRIGGER_SSO_LOGIN',
+          options: runnerState.options
+        });
+      } catch (_) {}
+    }
+
+    await sleep(1500);
+  }
+
+  if (!landedUrl) {
+    landedUrl = await waitForPostSsoLanding(helperTab.id, 6000);
+  }
+
+  if (landedUrl && !isSsoOrLoginUrl(landedUrl)) {
+    console.log('[TUNTAS BG] Sesi FASIH berhasil dipulihkan via SSO Eksternal! URL:', landedUrl);
+    await randomSleep(1500, 2200);
+    return true;
+  }
+
+  console.warn('[TUNTAS BG] Pemulihan sesi FASIH via SSO Eksternal tidak selesai dalam batas waktu.');
+  return false;
+}
+
 // Tab bantu (halaman FASIH tanpa form) untuk memanggil API — dipakai ulang selama antrian berjalan
 async function getApiHelperTab() {
   if (apiHelperTabId) {
     try {
       const existingTab = await chrome.tabs.get(apiHelperTabId);
-      if (existingTab && !isSsoOrLoginUrl(existingTab.url)) {
-        return apiHelperTabId;
+      if (existingTab) {
+        if (!isSsoOrLoginUrl(existingTab.url)) {
+          return apiHelperTabId;
+        }
+        // Tab bantu berada di halaman login/SSO: pulihkan sesi terlebih dahulu
+        console.log('[TUNTAS BG] Tab bantu yang ada terdeteksi di halaman login/SSO. Memulihkan sesi...');
+        const ok = await recoverApiSession();
+        if (ok) return apiHelperTabId;
       }
     } catch (e) {
       apiHelperTabId = null;
@@ -1474,18 +1605,21 @@ async function getApiHelperTab() {
   await waitForTabComplete(t.id, 35000);
   await randomSleep(1500, 2200);
 
-  // Jika tab bantu diarahkan ke login / SSO, proses login otomatis dan tunggu hingga kembali ke /app/
+  // Jika tab bantu diarahkan ke login / SSO, aktifkan tab dan proses login otomatis
   let checkTab = null;
   try { checkTab = await chrome.tabs.get(t.id); } catch (_) {}
   if (checkTab && isSsoOrLoginUrl(checkTab.url)) {
     console.log('[TUNTAS BG] Tab bantu API dialihkan ke SSO/login. Memproses auto login SSO...');
+    try {
+      await chrome.tabs.update(t.id, { active: true });
+    } catch (_) {}
     try {
       await chrome.tabs.sendMessage(t.id, {
         action: 'TRIGGER_SSO_LOGIN',
         options: runnerState.options
       });
     } catch (_) {}
-    const landed = await waitForPostSsoLanding(t.id, 25000);
+    const landed = await waitForPostSsoLanding(t.id, 35000);
     if (landed) {
       await randomSleep(1500, 2200);
     }
@@ -1512,8 +1646,34 @@ async function runApiStep(item, index, { skipApprovedCheck = false } = {}) {
   const row = { assignmentId: id, values: item.apiValues || {}, remarks: item.apiRemarks || {}, namaUsaha: item.namaUsahaExcel || item.nama_usaha || '' };
   const autoNote = item.apiNoteCode || '#1';
   const call = async (dr) => {
-    try { return await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote, skipApprovedCheck }); }
-    catch (e) { return { status: 'ERROR', error: e.message || String(e) }; }
+    try {
+      let r = await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote, skipApprovedCheck });
+      if (r && (r.status === 'ERROR' || r.status === 'DISCONNECTED') && isApiSessionExpiredError(r.error) && runnerState.status === 'RUNNING') {
+        console.log('[TUNTAS BG] Terdeteksi sesi kedaluwarsa saat callApiJob. Memulai pemulihan sesi...');
+        const recovered = await recoverApiSession(index);
+        if (recovered && runnerState.status === 'RUNNING') {
+          await updateItemStatus(index, 'PROCESSING', 'Sesi berhasil dipulihkan via SSO Eksternal! Menyimpan perubahan lewat API...');
+          r = await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote, skipApprovedCheck });
+        }
+      }
+      return r;
+    }
+    catch (e) {
+      const errMsg = e.message || String(e);
+      if (isApiSessionExpiredError(errMsg) && runnerState.status === 'RUNNING') {
+        console.log('[TUNTAS BG] Exception sesi kedaluwarsa saat callApiJob. Memulai pemulihan sesi...');
+        const recovered = await recoverApiSession(index);
+        if (recovered && runnerState.status === 'RUNNING') {
+          await updateItemStatus(index, 'PROCESSING', 'Sesi berhasil dipulihkan via SSO Eksternal! Menyimpan perubahan lewat API...');
+          try {
+            return await callApiJob({ action: 'API_APPLY', row, dryRun: dr, autoNote, skipApprovedCheck });
+          } catch (err2) {
+            return { status: 'ERROR', error: err2.message || String(err2) };
+          }
+        }
+      }
+      return { status: 'ERROR', error: errMsg };
+    }
   };
   let res = await call(dryRun);
   let verifikasi = '';
@@ -1524,7 +1684,17 @@ async function runApiStep(item, index, { skipApprovedCheck = false } = {}) {
     await sleep(2000);
     await updateItemStatus(index, 'PROCESSING', `Koneksi terputus, memeriksa ulang ke server (${coba})...`);
     const cek = await call(true);
-    if (!cek || cek.status !== 'DONE') { res = { status: 'ERROR', error: `koneksi ke tab bantu terputus (${res.error})${jejak}` }; break; }
+    if (!cek || cek.status !== 'DONE') {
+      if (cek && isApiSessionExpiredError(cek.error) && runnerState.status === 'RUNNING') {
+        const recovered = await recoverApiSession(index);
+        if (recovered && runnerState.status === 'RUNNING') {
+          res = await call(dryRun);
+          break;
+        }
+      }
+      res = { status: 'ERROR', error: `koneksi ke tab bantu terputus (${res.error})${jejak}` };
+      break;
+    }
     if (dryRun) { res = cek; break; }
     if (cek.result.noChange) {
       const b = (await chrome.storage.local.get(['apiBackups'])).apiBackups || {};
@@ -1543,7 +1713,11 @@ async function runApiStep(item, index, { skipApprovedCheck = false } = {}) {
     return { done: false, needRevoke: true, error: res.error };
   }
   if (!res || res.status !== 'DONE') {
-    await updateItemStatus(index, 'FAILED', `API: ${(res && res.error) || 'tidak ada respons'}`);
+    const errMsg = (res && res.error) || 'tidak ada respons';
+    const finalMsg = isApiSessionExpiredError(errMsg)
+      ? 'Sesi FASIH berakhir dan gagal login otomatis via SSO Eksternal.'
+      : `API: ${errMsg}`;
+    await updateItemStatus(index, 'FAILED', finalMsg);
     return { done: true };
   }
   const r = res.result;
@@ -1576,7 +1750,13 @@ async function restoreApiBackups(ids, dryRun) {
   const results = [];
   const tabId = await getApiHelperTab();
   for (const id of targets) {
-    const res = await callApiJob({ action: 'API_RESTORE', backup: backups[id], dryRun });
+    let res = await callApiJob({ action: 'API_RESTORE', backup: backups[id], dryRun });
+    if (res && res.status !== 'DONE' && isApiSessionExpiredError(res.error) && runnerState.status === 'RUNNING') {
+      const ok = await recoverApiSession();
+      if (ok && runnerState.status === 'RUNNING') {
+        res = await callApiJob({ action: 'API_RESTORE', backup: backups[id], dryRun });
+      }
+    }
     results.push({ id, code: backups[id].code, ok: res && res.status === 'DONE', error: res && res.error,
       versionBefore: res && res.result && res.result.versionBefore, versionAfter: res && res.result && res.result.versionAfter });
     broadcastToPopup({ action: 'UPDATE_STEP', step: 'RESTORE', details: `${results.length}/${targets.length} ${backups[id].code || id}` });

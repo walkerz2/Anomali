@@ -154,6 +154,7 @@ Untuk setiap baris pada file Excel:
      - Jika sesi berakhir saat otomasi berjalan, bot akan otomatis mengklik tombol **"Lanjutkan dengan SSO Eksternal"**, mengisi email & password, lalu mengirim formulir login dan kembali melanjutkan antrian secara mandiri.
      - **Keamanan Running-Guarded**: Fitur auto-login **hanya aktif saat tombol 'Mulai Otomasi' atau 'Test di Tab Aktif' sedang berjalan (status RUNNING)**. Jika Anda membuka halaman login saat browsing biasa / ekstensi idle, form tidak akan disentuh otomatis.
      - Mendukung pendeteksian tombol fleksibel (berbagai variasi teks/elemen SSO eksternal) dan polling rendering SPA otomatis hingga 8 detik.
+     - **Auto-Recovery Sesi Mode API (Ubah Variabel)**: Pada mode Ubah Variabel via API, jika sesi kedaluwarsa di latar belakang, bot otomatis membuka dan mengaktifkan tab login SSO Eksternal, melakukan login kembali, dan mengulang penyimpanan API secara transparan tanpa menyebabkan baris antrian gagal.
    - Anda dapat menyesuaikan email/kata sandi SSO kapan saja melalui menu Pengaturan pada popup.
 2. **Buka Ekstensi**:
    - Klik ikon **TUNTAS SE2026** di toolbar Chrome.
