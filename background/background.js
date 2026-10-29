@@ -2166,7 +2166,9 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
           kbliTask: (queue[index] && queue[index].kbliTask) || null,
           targetUsaha: (queue[index] && queue[index].targetUsaha) || '',
           commentText: (queue[index] && queue[index].commentText) || runnerState.options.commentText || '#DC_00',
-          dc0Target: (queue[index] && queue[index].dc0Target) || runnerState.options.dc0Target || 'nilai'
+          dc0Target: (queue[index] && queue[index].dc0Target) || runnerState.options.dc0Target || 'nilai',
+          apiFinalize: (queue[index] && queue[index].mode === 'API') || runnerState.options.mode === 'API',
+          blockOnGalat: (queue[index] && queue[index].mode === 'API') || runnerState.options.mode === 'API'
         }
       }, 5);
 
@@ -2327,7 +2329,7 @@ async function processQueueItemSingle(queue, index, prevTabIdToClose = null) {
         } else if (res.alreadySubmitted && !approveNote) {
           await updateItemStatus(index, 'SKIPPED', `${kirimNote}${remarkNote}; Approve tidak dijalankan`);
         } else {
-          const msg = `${kirimNote}${remarkNote}${approveNote}${res.kbliSummary ? ' | KBLI: ' + res.kbliSummary : ''}`;
+          const msg = `${kirimNote}${remarkNote}${approveNote}${res.kbliSummary ? ' | KBLI: ' + res.kbliSummary : ''}${apiNote ? ' | ' + apiNote : ''}`;
           await updateItemStatus(index, 'SUCCESS', msg);
         }
         runnerState.consecutiveFailures = 0; // Reset counter kegagalan beruntun
@@ -3313,6 +3315,16 @@ async function keepAliveTick() {
   await chrome.storage.local.set({ tuntasKeepAlive: { ...res, at: Date.now() } });
   chrome.action.setBadgeBackgroundColor({ color: '#E53935' }).catch(() => {});
   chrome.action.setBadgeText({ text: res.expired ? '!' : '' }).catch(() => {});
+
+  // Sesi habis & antrian tidak sedang berjalan (saat berjalan, content.js sendiri yang menangani logout)
+  const sibuk = runnerState.status === 'RUNNING';
+  const { tuntasReloginLast } = await chrome.storage.local.get(['tuntasReloginLast']);
+  if (res.expired && !sibuk && Date.now() - (tuntasReloginLast || 0) > 10 * 60 * 1000) {
+    await chrome.storage.local.set({ tuntasRelogin: { at: Date.now() }, tuntasReloginLast: Date.now() });
+    const loginTab = tabs.find((t) => !t.discarded);
+    if (loginTab) chrome.tabs.reload(loginTab.id).catch(() => {});
+    else chrome.tabs.create({ url: 'https://fasih-sm.bps.go.id/app/', active: false }).catch(() => {});
+  }
 }
 
 chrome.alarms.onAlarm.addListener((a) => {

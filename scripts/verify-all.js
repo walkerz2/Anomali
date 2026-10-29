@@ -37,6 +37,7 @@ const jsFiles = [
   'background/background.js',
   'content/content.js',
   'content/fasih_api.js',
+  'content/sso_login.js',
   'popup/popup.js',
   'lib/ntb_validator.js'
 ];

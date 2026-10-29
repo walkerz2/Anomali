@@ -28,6 +28,66 @@
 
   console.log('[TUNTAS] Content script loaded on:', window.location.href);
 
+  // ---------- Masuk ulang otomatis (dari penjaga sesi v3.0) ----------
+  (async () => {
+    try {
+      const st = await chrome.storage.local.get(['tuntasRelogin', 'tuntasSsoAuth', 'tuntasKeepAliveOn', 'tuntasAutoSsoLast', 'runnerState']);
+      const { tuntasSsoAuth } = st;
+      if (st.runnerState && st.runnerState.status === 'RUNNING') return;
+      const viaTanda = st.tuntasRelogin && Date.now() - (st.tuntasRelogin.at || 0) < 3 * 60 * 1000;
+      const viaOtomatis = st.tuntasKeepAliveOn !== false && Date.now() - (st.tuntasAutoSsoLast || 0) > 2 * 60 * 1000;
+      if (!viaTanda && !viaOtomatis) return;
+      for (let i = 0; i < 20; i++) {
+        const link = findSsoLoginLink((tuntasSsoAuth && tuntasSsoAuth.realm) || 'eksternal');
+        if (link) {
+          await chrome.storage.local.remove(['tuntasRelogin']);
+          await chrome.storage.local.set({ tuntasAutoSsoLast: Date.now() });
+          notifyStep('RELOGIN', 'Sesi FASIH habis — membuka login SSO otomatis...', 'warning');
+          window.location.href = link.href;
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    } catch (e) {}
+  })();
+
+  // ---------- Lanjutkan otomatis setelah login SSO ulang ----------
+  (async () => {
+    try {
+      const { tuntasPendingLogin } = await chrome.storage.local.get(['tuntasPendingLogin']);
+      if (!tuntasPendingLogin || !tuntasPendingLogin.returnUrl) return;
+      if (document.querySelector('a[href*="/app/auth/login"]')) return;
+      if (!tuntasPendingLogin.savedAt || Date.now() - tuntasPendingLogin.savedAt > 10 * 60 * 1000) {
+        await chrome.storage.local.remove(['tuntasPendingLogin']);
+        return;
+      }
+      await chrome.storage.local.remove(['tuntasPendingLogin']);
+      notifyStep('LOGIN_OK', 'Login ulang berhasil. Menyiapkan baris yang sempat terputus lalu memulai ulang antrian secara otomatis...', 'progress');
+
+      const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+      const targetId = (tuntasPendingLogin.returnUrl.match(UUID_RE) || [])[0];
+      const stored = await chrome.storage.local.get(['fasihQueue', 'runnerOptions']);
+      const queue = stored.fasihQueue || [];
+      if (targetId && queue.length) {
+        let changed = false;
+        queue.forEach((item) => {
+          const itemId = (String(item.link_fasih_sm || item.link || '').match(UUID_RE) || [])[0];
+          if (itemId === targetId && item.status !== 'SUCCESS' && item.status !== 'PENDING') {
+            item.status = 'PENDING';
+            item.error = null;
+            changed = true;
+          }
+        });
+        if (changed) await chrome.storage.local.set({ fasihQueue: queue });
+      }
+
+      await chrome.runtime.sendMessage({ action: 'STOP_QUEUE' }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 600));
+      await chrome.runtime.sendMessage({ action: 'START_QUEUE', options: stored.runnerOptions || {} }).catch(() => {});
+    } catch (e) {}
+  })();
+
+
   // State Eksekusi untuk Kontrol Pause & Stop Segera
   const executionState = {
     isRunning: false,
@@ -619,6 +679,56 @@
   }
 
   // 5. Mencari modal notifikasi sesi berakhir
+  
+  function findSsoLoginLink(realm) {
+    const links = Array.from(document.querySelectorAll('a[href*="/app/auth/login"]'));
+    if (!links.length) return null;
+    const eksternal = links.find(a => /realms=eksternal/i.test(a.getAttribute('href') || ''));
+    const internal = links.find(a => !/realms=eksternal/i.test(a.getAttribute('href') || ''));
+    if (realm === 'eksternal') return eksternal || internal || links[0];
+    return internal || links[0];
+  }
+
+  function detectLoggedOut() {
+    const link = findSsoLoginLink('pegawai');
+    if (!link) return null;
+    const bodyText = (document.body ? (document.body.innerText || document.body.textContent) : '');
+    return {
+      message: `Sesi FASIH-SM logout (halaman "${(bodyText.match(/Selamat Datang Kembali/i) || ['Selamat Datang Kembali'])[0]}" terdeteksi).`
+    };
+  }
+
+  async function handleLoggedOut(detected) {
+    const returnUrl = window.location.href;
+    notifyStep('LOGGED_OUT', detected.message, 'error');
+    try { await chrome.runtime.sendMessage({ action: 'PAUSE_QUEUE' }); } catch (e) {}
+
+    let auth = {};
+    try {
+      const data = await chrome.storage.local.get(['tuntasSsoAuth']);
+      auth = data.tuntasSsoAuth || {};
+    } catch (e) {}
+
+    if (!auth.enabled || !auth.username || !auth.password) {
+      return {
+        success: false,
+        isLoggedOut: true,
+        error: 'LOGOUT_MANUAL: Sesi FASIH logout — login otomatis belum diaktifkan. Login manual (SSO) di tab ini, lalu klik "Lanjut" di popup.'
+      };
+    }
+
+    const link = findSsoLoginLink(auth.realm);
+    if (!link) {
+      return { success: false, isLoggedOut: true, error: 'LOGOUT_MANUAL: Sesi FASIH logout — tombol SSO tidak ditemukan di halaman. Login manual lalu klik "Lanjut".' };
+    }
+    try {
+      await chrome.storage.local.set({ tuntasPendingLogin: { returnUrl, savedAt: Date.now() } });
+    } catch (e) {}
+    notifyStep('LOGGED_OUT', 'Mengalihkan ke halaman SSO untuk login otomatis...', 'warning');
+    window.location.href = link.href;
+    return { success: false, isLoggedOut: true, error: 'LOGOUT_AUTOLOGIN: Sesi FASIH logout — auto-login SSO dimulai, antrian dijeda sementara.' };
+  }
+
   function findSessionExpiredElement() {
     const modalSelectors = [
       '[role="dialog"]',
@@ -3294,8 +3404,7 @@
         lower.includes('tidak valid') ||
         lower.includes('tidak boleh') ||
         lower.includes('error') ||
-        lower.includes('anomali') ||
-        lower.includes('periksa kembali')
+        lower.includes('masih terdapat galat')
       ) {
         const clean = text.replace(/\s+/g, ' ').slice(0, 120);
         if (!seen.has(clean)) {
@@ -3315,9 +3424,14 @@
       const text = (dlg.textContent || '').trim();
       if (!text) continue;
       const lower = text.toLowerCase();
-      // Lewati modal konfirmasi kirim normal jika tidak mengandung peringatan galat
-      if (lower.includes('apakah anda yakin') && !lower.includes('galat') && !lower.includes('belum diisi') && !lower.includes('wajib')) {
-        continue;
+      // Lewati modal konfirmasi kirim normal jika tidak mengandung galat pemblokir (galat > 0 atau wajib diisi)
+      if (lower.includes('apakah anda yakin') || lower.includes('konfirmasi kirim')) {
+        const galatN = readKirimModalGalat();
+        if (galatN === 0 || (/galat\s*0/i.test(text) && !/galat\s*[1-9]/i.test(text))) {
+          if (!lower.includes('belum diisi') && !lower.includes('wajib diisi')) {
+            continue; // Modal konfirmasi kirim normal FASIH, bukan error!
+          }
+        }
       }
       if (
         lower.includes('galat') ||
@@ -3325,10 +3439,12 @@
         lower.includes('belum lengkap') ||
         lower.includes('wajib diisi') ||
         lower.includes('tidak valid') ||
-        lower.includes('peringatan') ||
-        lower.includes('periksa kembali') ||
-        lower.includes('masih terdapat')
+        lower.includes('masih terdapat galat')
       ) {
+        // Abaikan jika pop-up konfirmasi kirim menampilkan "GALAT 0"
+        if (/galat\s*0/i.test(text) && !/galat\s*[1-9]/i.test(text) && !lower.includes('belum diisi') && !lower.includes('wajib diisi')) {
+          continue;
+        }
         const clean = text.replace(/\s+/g, ' ').slice(0, 120);
         if (!seen.has(clean)) {
           seen.add(clean);
@@ -4235,6 +4351,11 @@
   }
 
   async function executeWorkflow(options = {}) {
+    // Deteksi dini sesi logout
+    const earlyLoggedOut = detectLoggedOut();
+    if (earlyLoggedOut) {
+      return await handleLoggedOut(earlyLoggedOut);
+    }
     const kbliTask = options.kbliTask || null;
     const commentText = options.commentText || '#DC_00';
     const stepDelay = options.stepDelay || 1500;
@@ -4497,9 +4618,23 @@
       }
     }
 
+    // Menu "Ubah Variabel (API)": data sudah diubah lewat API sebelum form dibuka.
+    // Di sini cukup Kirim lewat form (validasi FASIH berjalan) — tanpa langkah BLOK II / catatan.
+    const apiFinalize = options.apiFinalize === true;
+    if (apiFinalize) notifyStep('API_FINALIZE', 'Data sudah diubah lewat API. Membuka form untuk validasi & Kirim...', 'progress');
+
+    let businessItems = [];
+    let kbliProcessed = [];
+    let kbliSkippedNotes = [];
+    let dc0TargetsFound = 0;
+    let newRemarksAdded = 0;
+    let existingRemarksCount = 0;
+    let lastFoundExistingCode = '';
+    let lastFoundExistingReason = '';
+
+    if (!apiFinalize) {
     // STEP 2: Menunggu halaman form kuisioner terbuka, lalu pilih menu blok yang sesuai
     const isUB = isUBQuestionnaire();
-    let businessItems = [];
 
     if (kbliTask && (!/^\d{5}$/.test(kbliTask.kbliAwal || '') || !/^\d{5}$/.test(kbliTask.kbliTujuan || '') || kbliTask.kbliAwal === kbliTask.kbliTujuan)) {
       return { success: false, error: 'Data KBLI tidak valid (kbli_awal/kbli_tujuan kosong atau sama)' };
@@ -4605,18 +4740,7 @@
     }
 
     // STEP 5: Menuju pertanyaan target pada unit usaha terpilih
-    const kbliProcessed = [];
-    const kbliSkippedNotes = [];
-    let dc0TargetsFound = 0;
-    let newRemarksAdded = 0;
-    let existingRemarksCount = 0;
-    let lastFoundExistingCode = '';
-    let lastFoundExistingReason = '';
-
-    if (options.apiFinalize) {
-      notifyStep('STEP_5_API_DONE', 'Nilai dan catatan telah berhasil disimpan via API. Memeriksa anomali formulir & memproses pengiriman survei (Kirim)...', 'progress');
-    } else {
-      for (let i = 0; i < businessItems.length; i++) {
+    for (let i = 0; i < businessItems.length; i++) {
         await checkAbortOrPause();
         await ensureCommentModalClosed();
 
@@ -4774,18 +4898,18 @@
       if (kbliTask) {
         notifyStep('KBLI_DONE', `KBLI diproses: ${kbliProcessed.join('; ')}`, 'progress');
       }
-    }
 
-    notifyStep('STEP_5_ALL_DONE', 'Semua item usaha dan pertanyaan target telah selesai diberi catatan!');
-    await sleep(getJitterDelay(stepDelay));
-    await checkAbortOrPause();
+      notifyStep('STEP_5_ALL_DONE', 'Semua item usaha dan pertanyaan target telah selesai diberi catatan!');
+      await sleep(getJitterDelay(stepDelay));
+      await checkAbortOrPause();
 
-    // STEP 5B: Buka Menu CATATAN di sidebar & Aktifkan Toggle "Tampilkan Anomali Usaha dan Keluarga"
-    await handleCatatanAnomaliSection(stepDelay);
-    await checkAbortOrPause();
+      // STEP 5B: Buka Menu CATATAN di sidebar & Aktifkan Toggle "Tampilkan Anomali Usaha dan Keluarga"
+      await handleCatatanAnomaliSection(stepDelay);
+      await checkAbortOrPause();
+    } // akhir langkah BLOK II / catatan (dilewati pada menu Ubah Variabel)
 
     // MODAL KONFIRMASI MANUAL (Jika opsi checkbox diaktifkan)
-    if (options.requireManualConfirm) {
+    if (!apiFinalize && options.requireManualConfirm) {
       notifyStep('MANUAL_CONFIRM_WAIT', 'Menunggu konfirmasi manual dari pengguna untuk memeriksa kesesuaian...', 'warning');
       const userDecision = await showManualConfirmModal(kbliTask ? `${options.catatanKbliDiganti || '#DC_01'} (KBLI ${kbliTask.kbliAwal} → ${kbliTask.kbliTujuan})` : commentText);
 
@@ -4857,6 +4981,20 @@
       notifyStep('STEP_6_TOP_SUBMIT_CLICK', 'Mengklik tombol Kirim survei...', 'progress');
       await humanClick(topSubmitBtn);
       await randomSleep(850, 1300);
+      // Menu API: baca ringkasan pop-up Kirim ("GALAT n"). Bila ada galat, batalkan Kirim.
+      if (options.blockOnGalat || options.apiFinalize) {
+        await randomSleep(500, 800);
+        const galatN = readKirimModalGalat();
+        if (galatN !== null && galatN > 0) {
+          const batal = Array.from(document.querySelectorAll('[role="dialog"] button, [data-kb-dialog-content] button'))
+            .find(b => (b.textContent || '').trim().toLowerCase() === 'batal');
+          if (batal) { await humanClick(batal); await randomSleep(400, 700); }
+          notifyStep('STEP_6_GALAT_BLOCK', `FASIH menampilkan ${galatN} GALAT. Kirim dibatalkan.`, 'error');
+          return { success: false, hasGalat: true, error: `GALAT ${galatN}: dokumen TIDAK dikirim. Perubahan API sudah tersimpan — perbaiki di FASIH atau Restore dari backup` };
+        }
+        if (galatN !== null) notifyStep('STEP_6_GALAT_OK', 'Pop-up Kirim: GALAT 0. Melanjutkan Kirim...', 'progress');
+      }
+
 
       // Cek apakah ada tombol Kirim kedua/lanjutan yang muncul
       const secondaryKirimBtn = findSecondaryKirimButton(topSubmitBtn);

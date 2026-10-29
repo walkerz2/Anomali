@@ -29,6 +29,7 @@
   ],
   "host_permissions": [
     "https://fasih-sm.bps.go.id/*",
+    "https://sso.bps.go.id/*",
     "https://*.bps.go.id/*",
     "*://*.bps.go.id/*",
     "https://n8n7309.online/*",
@@ -48,6 +49,15 @@
       "js": [
         "content/fasih_api.js",
         "content/content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://sso.bps.go.id/*"
+      ],
+      "js": [
+        "content/sso_login.js"
       ],
       "run_at": "document_idle"
     }

@@ -1125,3 +1125,40 @@ body {
   color: #b91c1c;
   border: 1px solid #fecaca;
 }
+
+/* ===== Login Otomatis (SSO) & Penjaga Sesi (v3) ===== */
+.sso-card { padding-bottom: 10px; }
+.sso-toggle { margin-bottom: 2px; }
+.sso-fields { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.sso-fields .config-grid { margin-bottom: 8px; }
+.sso-password-row { display: flex; gap: 6px; align-items: center; }
+.sso-password-row input { flex: 1; min-width: 0; }
+.btn-sso-eye {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.btn-sso-eye:hover { background: var(--primary-light); }
+.sso-realm-row { display: flex; gap: 14px; margin-top: 2px; }
+.sso-realm-opt { font-size: 11.5px; }
+.btn-sso-save { margin-top: 2px; width: 100%; }
+.sso-note { font-size: 10.5px; color: var(--text-muted); line-height: 1.4; margin-top: 8px; }
+.sso-note code { font-size: 10px; }
+.sso-status {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.sso-status.ok { background: #E6F4E4; color: #2E7D27; }
+.sso-status.warn { background: #FEF0DD; color: #B9600A; }
+.sso-status.err { background: #fee2e2; color: #b91c1c; }
+.sso-sep { border: none; border-top: 1px dashed #DCE5F2; margin: 6px 0 10px; }
+

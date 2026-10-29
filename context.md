@@ -1,7 +1,7 @@
 # CONTEXT.MD — TUNTAS SE2026 (Tracking dan Tindak Lanjut Anomali Sensus)
 
 > **Dokumen Konteks Proyek & Panduan Teknis Komprehensif**  
-> Terakhir diperbarui: 27 Oktober 2026, 17:48 WITA (Asia/Makassar / UTC+8)
+> Terakhir diperbarui: 29 Oktober 2026, 21:20 WITA (Asia/Makassar / UTC+8)
 > Zona Waktu Sistem: Waktu Indonesia Tengah (WITA / Asia/Makassar / UTC+8)
 
 ---
@@ -76,7 +76,8 @@ flowchart TB
 | **Core Extension** | Manifest V3, Web Extensions API | Izin: `storage`, `unlimitedStorage`, `tabs`, `activeTab`, `scripting`, `alarms` |
 | **Excel Parser & Generator** | SheetJS (`lib/xlsx.full.min.js`) | Membaca & menulis file Excel (`.xlsx`, `.xls`) 100% lokal di browser tanpa koneksi internet |
 | **NTB Engine** | `lib/ntb_validator.js` | Klasifikasi 22 sektor KBLI, formula rasio NTB riil, auto-imputasi median, ekspor 3-sheet |
-| **DOM Automation** | `content/content.js` | Navigasi SPA kuesioner, penanganan kuesioner UB vs Non-UB, input catatan, toggle konfirmasi, submit & approve |
+| **DOM Automation** | `content/content.js` | Navigasi SPA kuesioner, penanganan UB vs Non-UB, auto Kirim API cepat (skip Step 2-5B), submit & approve |
+| **SSO Auto-Fill** | `content/sso_login.js` | Auto-fill kredensial SSO BPS via setNativeValue, orange pulse highlight, bypass anti-bot F5 via 1x klik manual |
 | **FASIH API Client** | `content/fasih_api.js` | Manipulasi FormGear internal, enkripsi/kompresi ZIP-CRC32-MD5, backup/restore JSON variabel |
 | **Queue & Resiliensi** | `background/background.js` | Service worker MV3 keep-alive, antrian kerja, pemantauan latensi, jeda dinamis, circuit breaker |
 | **Telemetri & Remote** | n8n Webhook & WhatsApp Bot | Notifikasi real-time ke grup WA, sinkronisasi status dua arah, remote control (`#STATUS`, `#JEDA`, `#LANJUT`, `#STOP`, `#TAMBAH`) |
@@ -110,7 +111,8 @@ Anomali/
 │   └── background.js        # Controller utama: antrian, tab lifecycles, keep-alive, throttle, webhook
 ├── content/                 # Script injeksi ke halaman FASIH BPS
 │   ├── content.js           # Robot DOM: alur klik form kuesioner, catatan, toggle, submit, approve
-│   └── fasih_api.js         # API Engine: modifikasi data kuesioner langsung via endpoint FormGear
+│   ├── fasih_api.js         # API Engine: modifikasi data kuesioner langsung via endpoint FormGear
+│   └── sso_login.js         # Script SSO Keycloak BPS: auto-fill kredensial, orange pulse, bypass anti-bot F5 via 1x klik
 ├── scripts/                 # Skrip verifikasi dan automasi pengujian
 │   └── verify-all.js        # Pengujian mandiri AST syntax, manifest, dan message action integrity
 ├── workflows/               # Blueprint alur kerja otomatisasi n8n & integrasi WhatsApp

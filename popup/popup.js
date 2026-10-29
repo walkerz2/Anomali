@@ -48,6 +48,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnTestWebhook = $('btnTestWebhook');
   const checkNotifyStatus = $('checkNotifyStatus');
   const checkAutoSsoLogin = $('checkAutoSsoLogin');
+  const checkSsoAutoLogin = $('checkSsoAutoLogin');
+  const ssoAuthFields = $('ssoAuthFields');
+  const ssoUsername = $('ssoUsername');
+  const ssoPassword = $('ssoPassword');
+  const btnToggleSsoPassword = $('btnToggleSsoPassword');
+  const ssoRealmRadios = Array.from(document.querySelectorAll('input[name="ssoRealm"]'));
+  const btnSaveSsoAuth = $('btnSaveSsoAuth');
+  const ssoStatus = $('ssoStatus');
   const checkKeepAlive = $('checkKeepAlive');
   const keepAliveStatus = $('keepAliveStatus');
   const checkAutoRevoke = $('checkAutoRevoke');
@@ -752,10 +760,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       notifyOnComplete: checkNotifyStatus ? checkNotifyStatus.checked : true,
       notifyOnPauseStop: checkNotifyStatus ? checkNotifyStatus.checked : true,
       webhookUrl: (webhookUrlInput && webhookUrlInput.value.trim()) || DEFAULT_WEBHOOK_URL,
-      autoSsoLogin: checkAutoSsoLogin ? checkAutoSsoLogin.checked : true,
+      autoSsoLogin: checkSsoAutoLogin ? checkSsoAutoLogin.checked : (checkAutoSsoLogin ? checkAutoSsoLogin.checked : true),
       autoRevoke: checkAutoRevoke ? checkAutoRevoke.checked : true,
-      ssoEmail: (ssoEmailInput && ssoEmailInput.value.trim()) || 'Haerulhaeruddin003@gmail.com',
-      ssoPassword: (ssoPasswordInput && ssoPasswordInput.value) || 'Mitra123',
+      ssoEmail: (ssoUsername && ssoUsername.value.trim()) || (ssoEmailInput && ssoEmailInput.value.trim()) || 'Haerulhaeruddin003@gmail.com',
+      ssoPassword: (ssoPassword && ssoPassword.value) || (ssoPasswordInput && ssoPasswordInput.value) || 'Mitra123',
       requireManualConfirm: checkRequireConfirm.checked,
       autoSubmitSurvey: true,
       autoApprove: checkAutoApprove.checked,
@@ -1516,6 +1524,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (o.autoApprove !== undefined) checkAutoApprove.checked = o.autoApprove;
     if (o.closeTabOnComplete !== undefined) checkCloseTab.checked = o.closeTabOnComplete;
 
+    await loadSsoAuth();
     if (data.fasihAllRows && data.fasihAllRows.length) {
       allRows = data.fasihAllRows;
     }
@@ -1588,6 +1597,73 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadSavedState();
 
     // ---------- Jaga sesi FASIH tetap aktif ----------
+  
+  // ---------- Login Otomatis (SSO v3) ----------
+  function renderSsoStatus(attempt) {
+    if (!ssoStatus) return;
+    if (!attempt || !attempt.result) { ssoStatus.classList.add('hidden'); return; }
+    const when = attempt.at ? new Date(attempt.at).toLocaleTimeString('id-ID') : '';
+    const map = {
+      FILLED: ['warn', `Username/password sudah diisi otomatis (${when}) — tinggal klik tombol Log In manual 1x di tab SSO.`],
+      FAILED: ['err', `Login SSO sebelumnya gagal (${when}): ${attempt.message || ''}. Cek username/password lalu coba lagi.`],
+      NEEDS_MFA: ['err', `Halaman SSO minta OTP/MFA (${when}) — login manual lalu klik "Lanjut".`]
+    };
+    const [cls, text] = map[attempt.result] || [null, null];
+    if (!text) { ssoStatus.classList.add('hidden'); return; }
+    ssoStatus.className = `sso-status ${cls}`;
+    ssoStatus.textContent = text;
+    ssoStatus.classList.remove('hidden');
+  }
+
+  async function loadSsoAuth() {
+    if (!checkSsoAutoLogin) return;
+    const { tuntasSsoAuth, tuntasSsoAttempt } = await chrome.storage.local.get(['tuntasSsoAuth', 'tuntasSsoAttempt']);
+    const auth = tuntasSsoAuth || {};
+    checkSsoAutoLogin.checked = !!auth.enabled;
+    if (ssoUsername) ssoUsername.value = auth.username || '';
+    if (ssoPassword) ssoPassword.value = auth.password || '';
+    if (ssoRealmRadios && ssoRealmRadios.length) {
+      (ssoRealmRadios.find(r => r.value === (auth.realm || 'eksternal')) || ssoRealmRadios[0]).checked = true;
+    }
+    if (ssoAuthFields) ssoAuthFields.classList.toggle('hidden', !checkSsoAutoLogin.checked);
+    renderSsoStatus(tuntasSsoAttempt);
+  }
+
+  if (checkSsoAutoLogin) {
+    checkSsoAutoLogin.addEventListener('change', async () => {
+      if (ssoAuthFields) ssoAuthFields.classList.toggle('hidden', !checkSsoAutoLogin.checked);
+      const { tuntasSsoAuth } = await chrome.storage.local.get(['tuntasSsoAuth']);
+      await chrome.storage.local.set({ tuntasSsoAuth: { ...(tuntasSsoAuth || {}), enabled: checkSsoAutoLogin.checked } });
+      if (!checkSsoAutoLogin.checked && liveStatusText) liveStatusText.textContent = 'Login otomatis SSO dimatikan.';
+      saveSettings();
+    });
+  }
+
+  if (btnToggleSsoPassword && ssoPassword) {
+    btnToggleSsoPassword.addEventListener('click', () => {
+      ssoPassword.type = ssoPassword.type === 'password' ? 'text' : 'password';
+    });
+  }
+
+  if (btnSaveSsoAuth) {
+    btnSaveSsoAuth.addEventListener('click', async () => {
+      const username = ssoUsername ? ssoUsername.value.trim() : '';
+      const password = ssoPassword ? ssoPassword.value : '';
+      const realm = (ssoRealmRadios.find(r => r.checked) || {}).value || 'eksternal';
+      if (checkSsoAutoLogin.checked && (!username || !password)) {
+        alert('Isi username dan password SSO terlebih dahulu, atau matikan "Login otomatis".');
+        return;
+      }
+      await chrome.storage.local.set({
+        tuntasSsoAuth: { enabled: checkSsoAutoLogin.checked, username, password, realm },
+        tuntasSsoAttempt: null
+      });
+      renderSsoStatus(null);
+      if (liveStatusText) liveStatusText.textContent = 'Pengaturan login otomatis SSO disimpan.';
+      saveSettings();
+    });
+  }
+
   function renderKeepAlive(k) {
     if (!keepAliveStatus) return;
     if (!k || !k.at) {
@@ -1600,7 +1676,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     keepAliveStatus.textContent = k.ok
       ? `Sesi FASIH aktif — terakhir diperpanjang ${jam}${k.user ? ` (${k.user})` : ''}`
       : k.expired
-      ? `Sesi FASIH habis (${jam}) — silakan login SSO Eksternal kembali.`
+      ? `Sesi FASIH habis (${jam}) — membuka halaman masuk FASIH. Bila diminta, login SSO di tab tersebut.`
       : `Belum bisa diperiksa (${jam}): ${k.msg || ''}`;
   }
 
@@ -1621,6 +1697,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === 'local' && changes.tuntasKeepAlive) renderKeepAlive(changes.tuntasKeepAlive.newValue);
+      if (area === 'local' && changes.tuntasSsoAttempt) renderSsoStatus(changes.tuntasSsoAttempt.newValue);
     });
 
     chrome.runtime.sendMessage({ action: 'KEEPALIVE_NOW' }).catch(() => {});

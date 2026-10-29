@@ -33,6 +33,9 @@ Alurnya seperti #DC_00/#DC_01, tetapi variabelnya bebas diubah sesuai dataKey fo
 - Sel kosong = tidak diubah; `#KOSONG` = kosongkan jawaban.
 - **Uji coba (dry run)** aktif secara bawaan: menampilkan perubahan tanpa menyimpan.
 - Saat jalan sungguhan: backup otomatis dibuat (`.json`) → simpan lewat API → form dibuka ulang → Kirim (dibatalkan bila FASIH menampilkan GALAT) → Approve.
+- **Optimasi Kecepatan Eksekusi (High-Speed API Finalize)**: Karena perubahan nilai variabel dan catatan telah disimpan via REST API FormGear sebelum form dibuka, bot melewati pemuatan DOM BLOK II, collapsible unit, dan sidebar catatan (langkah 2–5B dilewati otomatis). Bot langsung menuju tombol Kirim dalam tempo ~2–3 detik per dokumen.
+- **Pencegahan False-Positive Galat**: Membaca kartu `GALAT` secara akurat pada modal konfirmasi Kirim (`readKirimModalGalat()`). Peringatan anomali biasa tidak lagi dianggap galat fatal; bot hanya membatalkan pengiriman bila terdapat galat riil (`GALAT > 0` atau field wajib kosong).
+- **Log Perubahan Presisi**: Status antrian mencatat riwayat perubahan nilai dan versi API secara transparan (contoh: `Sukses terkirim | API v19→v20: 6 perubahan: biaya_pembelian#1001: 3500000 → 47950000; operasional#1001: 600000 → 6850000; ...`).
 - Tombol **Backup** / **Restore** untuk mengunduh dan mengembalikan data awal; tombol **Cari dataKey** untuk melihat nama variabel di dokumen yang sedang dibuka.
 
 
@@ -148,14 +151,14 @@ Untuk setiap baris pada file Excel:
 
 ## 📖 Cara Menggunakan
 
-1. **Akun FASIH, Auto Login SSO Eksternal & Penjaga Sesi**:
-   - **Jaga Sesi FASIH Tetap Aktif**: Memastikan sesi Anda di FASIH-SM tidak kedaluwarsa saat browser didiamkan. Cukup biarkan minimal satu tab `fasih-sm.bps.go.id` terbuka di latar belakang. Ekstensi akan mengirimkan *heartbeat* ringan ke server tiap 4 menit dan mengunci tab agar tidak dibekukan (*autoDiscardable: false*).
-   - **Auto Login SSO Eksternal (Cerdas & Aman)**:
-     - Jika sesi berakhir saat otomasi berjalan, bot akan otomatis mengklik tombol **"Lanjutkan dengan SSO Eksternal"**, mengisi email & password, lalu mengirim formulir login dan kembali melanjutkan antrian secara mandiri.
-     - **Keamanan Running-Guarded**: Fitur auto-login **hanya aktif saat tombol 'Mulai Otomasi' atau 'Test di Tab Aktif' sedang berjalan (status RUNNING)**. Jika Anda membuka halaman login saat browsing biasa / ekstensi idle, form tidak akan disentuh otomatis.
-     - Mendukung pendeteksian tombol fleksibel (berbagai variasi teks/elemen SSO eksternal) dan polling rendering SPA otomatis hingga 8 detik.
-     - **Auto-Recovery Sesi Mode API (Ubah Variabel)**: Pada mode Ubah Variabel via API, jika sesi kedaluwarsa di latar belakang, bot otomatis membuka dan mengaktifkan tab login SSO Eksternal, melakukan login kembali, dan mengulang penyimpanan API secara transparan tanpa menyebabkan baris antrian gagal.
-   - Anda dapat menyesuaikan email/kata sandi SSO kapan saja melalui menu Pengaturan pada popup.
+1. **Akun FASIH, Auto Login SSO Eksternal & Penjaga Sesi (v3.0)**:
+   - **Jaga Sesi FASIH Tetap Aktif**: Setiap 4 menit ekstensi menyapa server FASIH-SM agar tidak logout karena lama diam (`autoDiscardable: false`). Bila sesi habis saat ekstensi idle, bot otomatis membuka halaman login SSO di latar belakang.
+   - **Isi Otomatis Saat Logout (Bypass Anti-Bot BPS F5 via 1x Klik Manual)**:
+     - Jika sesi logout terdeteksi di tengah antrian, bot otomatis menjeda proses antrian (`PAUSE_QUEUE`), menyimpan target dokumen yang tertunda (`tuntasPendingLogin`), dan mengalihkan tab ke halaman login SSO BPS.
+     - Skrip `content/sso_login.js` secara otomatis mengisikan username/email dan password ke form Keycloak SSO menggunakan metode injeksi `setNativeValue`.
+     - Tombol Log In ditandai dengan animasi denyut oranye (*orange pulse*) dan panduan interaktif: *"Silakan klik Log In manual 1x, lalu bot lanjut sendiri"*. Pendekatan klik manual 1x ini secara sempurna melewati deteksi anti-bot F5 / Cloudflare BPS tanpa risiko pemblokiran IP.
+     - Begitu login selesai, bot seketika mendeteksi kembalinya sesi FASIH aktif, memulihkan baris yang sempat terputus, dan melanjutkan antrian otomatis dari titik jeda tanpa perlu intervensi pengguna.
+     - Mendukung pemilihan **Jenis SSO**: **SSO (pegawai BPS)** maupun **SSO Eksternal**.
 2. **Buka Ekstensi**:
    - Klik ikon **TUNTAS SE2026** di toolbar Chrome.
 3. **Import File Excel**:

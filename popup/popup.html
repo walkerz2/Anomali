@@ -231,19 +231,7 @@
           </div>
         </div>
 
-        <!-- Pengaturan Kredensial SSO Eksternal -->
-        <div class="config-grid">
-          <div class="form-group">
-            <label for="ssoEmailInput">Email SSO Eksternal:</label>
-            <input type="email" id="ssoEmailInput" value="Haerulhaeruddin003@gmail.com" placeholder="Email SSO" spellcheck="false">
-          </div>
-          <div class="form-group">
-            <label for="ssoPasswordInput">Password SSO:</label>
-            <input type="password" id="ssoPasswordInput" value="Mitra123" placeholder="Password SSO">
-          </div>
-        </div>
-
-        <!-- PengaturanIdentitas PC & Webhook Notifikasi Error -->
+        <!-- Pengaturan Identitas PC & Webhook Notifikasi Error -->
         <div class="config-grid config-grid-webhook">
           <div class="form-group">
             <label for="pcNameInput" title="Identitas PC ini agar saat terjadi error di grup/webhook diketahui berasal dari PC berapa">Nama / No. PC:</label>
@@ -283,15 +271,6 @@
             <span><b>Notifikasi Status Antrian</b> — Kirim pesan WA saat antrian Dijeda (PAUSE), Dihentikan (STOP), atau Selesai (COMPLETED)</span>
           </label>
           <label class="checkbox-label">
-            <input type="checkbox" id="checkAutoSsoLogin" checked>
-            <span>Auto Login SSO Eksternal jika diminta / sesi habis</span>
-          </label>
-          <label class="checkbox-label">
-            <input type="checkbox" id="checkKeepAlive" checked>
-            <span><b>Jaga sesi FASIH tetap aktif</b> — sapa server tiap 4 menit agar sesi tidak habis</span>
-          </label>
-          <div id="keepAliveStatus" class="keepalive-status">Status sesi: belum diperiksa</div>
-          <label class="checkbox-label">
             <input type="checkbox" id="checkAutoRevoke" checked>
             <span>Auto Revoke jika assignment sudah di-Approve (agar bisa diberi catatan & dikirim ulang)</span>
           </label>
@@ -307,6 +286,45 @@
             <input type="checkbox" id="checkCloseTab" checked>
             <span>Tutup tab setelah selesai</span>
           </label>
+        </div>
+      </section>
+
+      <!-- Login Otomatis (SSO) & Penjaga Sesi FASIH -->
+      <section class="card sso-card">
+        <label class="checkbox-label sso-toggle">
+          <input type="checkbox" id="checkKeepAlive" checked>
+          <span><b>Jaga sesi FASIH tetap aktif</b> — setiap 4 menit TUNTAS menyapa server FASIH agar tidak logout karena lama diam; bila sesi habis, TUNTAS membuka halaman masuk FASIH (Lanjutkan dengan SSO) otomatis</span>
+        </label>
+        <div id="keepAliveStatus" class="keepalive-status">Status sesi: belum diperiksa</div>
+        <hr class="sso-sep">
+        <label class="checkbox-label sso-toggle">
+          <input type="checkbox" id="checkSsoAutoLogin">
+          <span><b>Isi otomatis saat logout</b> — bot jeda, buka SSO &amp; isi username/password otomatis; Silakan <b>klik Log In manual 1x</b>, lalu bot lanjut sendiri</span>
+        </label>
+        <div id="ssoAuthFields" class="sso-fields hidden">
+          <div class="config-grid">
+            <div class="form-group">
+              <label for="ssoUsername">Username / email SSO:</label>
+              <input type="text" id="ssoUsername" autocomplete="off" spellcheck="false" placeholder="nip / email">
+            </div>
+            <div class="form-group">
+              <label for="ssoPassword">Password SSO:</label>
+              <div class="sso-password-row">
+                <input type="password" id="ssoPassword" autocomplete="off" placeholder="password SSO">
+                <button type="button" id="btnToggleSsoPassword" class="btn-sso-eye" title="Tampilkan/sembunyikan password">👁</button>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Jenis SSO:</label>
+            <div class="sso-realm-row">
+              <label class="checkbox-label sso-realm-opt"><input type="radio" name="ssoRealm" value="pegawai"> SSO (pegawai BPS)</label>
+              <label class="checkbox-label sso-realm-opt"><input type="radio" name="ssoRealm" value="eksternal" checked> SSO Eksternal</label>
+            </div>
+          </div>
+          <button id="btnSaveSsoAuth" class="btn btn-secondary btn-sso-save" type="button">Simpan Login Otomatis</button>
+          <p class="sso-note">Password disimpan <b>lokal</b> di penyimpanan Chrome. Tombol <b>Log In tetap harus diklik manual</b> (1x klik saja) karena halaman SSO BPS memakai proteksi anti-bot yang memblokir klik otomatis — kalau login gagal (password salah / perlu OTP), bot berhenti dan menunggu login manual.</p>
+          <div id="ssoStatus" class="sso-status hidden"></div>
         </div>
       </section>
 
