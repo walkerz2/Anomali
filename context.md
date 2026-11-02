@@ -1,7 +1,7 @@
 # CONTEXT.MD — TUNTAS SE2026 (Tracking dan Tindak Lanjut Anomali Sensus)
 
 > **Dokumen Konteks Proyek & Panduan Teknis Komprehensif**  
-> Terakhir diperbarui: 29 Oktober 2026, 23:45 WITA (Asia/Makassar / UTC+8)
+> Terakhir diperbarui: 2 November 2026, 20:00 WITA (Asia/Makassar / UTC+8)
 > Zona Waktu Sistem: Waktu Indonesia Tengah (WITA / Asia/Makassar / UTC+8)
 
 ---
@@ -90,6 +90,7 @@ flowchart TB
 ```
 Anomali/
 ├── manifest.json            # Manifest V3: Permissions, Host Permissions, Content Scripts, Worker
+├── .gitignore               # Proteksi berkas sensitif, kredensial, env, file sensus riil, & build artifacts
 ├── README.md                # Panduan operasional bagi pengguna dan dokumentasi fitur
 ├── context.md               # [File Ini] Dokumentasi konteks arsitektur & referensi teknis pengembang
 ├── AGENTS.md                # Aturan pengembangan agen: Git safe workflow, Zero Regression, Doc-Sync

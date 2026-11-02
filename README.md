@@ -229,6 +229,7 @@ Tersedia skill .agents/skills/pengecekan-anomali-kbli untuk mendeteksi kesalahan
 ```
 Anomali/
 ├── manifest.json            # Konfigurasi Chrome Extension Manifest V3
+├── .gitignore               # Proteksi berkas sensitif, kredensial, env, file survei sensus, & artifacts
 ├── README.md                # Dokumentasi & panduan penggunaan pengguna
 ├── context.md               # Arsitektur teknis lengkap & referensi pengembang
 ├── AGENTS.md                # Aturan pengembangan & workflow AI agent

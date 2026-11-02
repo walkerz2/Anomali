@@ -1,0 +1,64 @@
+# ====================================================
+# .gitignore — TUNTAS SE2026 (Chrome Extension MV3)
+# ====================================================
+
+# 1. Environment Variables, Credentials & Secrets
+.env
+.env.*
+*.local
+credentials.json
+secrets.json
+config.local.js
+
+# 2. Data Sensus & File Spreadsheet Sensitif
+# Catatan: Abaikan file Excel data survei riil agar data responden tidak bocor.
+*.xlsx
+*.xls
+*.csv
+# Pengecualian template resmi & file contoh uji coba:
+!template/*.xlsx
+!ujicoba.xlsx
+
+# 3. Build Artifacts & Distribution Packages
+dist/
+build/
+out/
+*.zip
+*.crx
+*.tar.gz
+
+# 4. Logs & Traces
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+debug/
+
+# 5. Dependency Directories (jika ada tool Node tambahan)
+node_modules/
+
+# 6. Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# 7. IDE & Editor Specific Files
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 8. Temporary & Backup Files
+*.tmp
+*.temp
+*.bak
+*~
